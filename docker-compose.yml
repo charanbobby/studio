@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - ./runs:/app/runs
+      - ./backend/src:/app/src
+    ports: ["8000:8000"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: production
+    ports: ["3000:3000"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
