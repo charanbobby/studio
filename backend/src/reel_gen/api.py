@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -43,23 +43,32 @@ def _runs_dir() -> Path:
 
 
 async def _execute_run(run_id: str, prompt: str, duration_s: int, with_music: bool) -> None:
-    """Background coroutine: drives the LangGraph machine and publishes SSE events.
-    Phase 5 wires the approval gate; Phases 6-7 wire Execute and Stitch.
-    """
-    from reel_gen.graph import build_graph_until_plan
+    """Drives the full LangGraph machine end-to-end. Publishes per-node events."""
+    import json
+
+    from reel_gen.graph import build_graph
     from reel_gen.state import ReelState
 
     state = ReelState(run_id=run_id, brief=prompt, duration_s=duration_s, with_music=with_music)
     await REGISTRY.update(run_id, status="running")
-    await REGISTRY.publish(run_id, {"event": "extract_start"})
-    graph = build_graph_until_plan()
+    graph = build_graph()
     try:
-        final = await asyncio.to_thread(graph.invoke, state)
-        plan = final["plan"] if isinstance(final, dict) else final.plan
-        await REGISTRY.publish(run_id, {"event": "plan_end", "plan": plan.model_dump() if plan else None})
-        await REGISTRY.update(run_id, plan=plan.model_dump() if plan else None, status="awaiting_approval")
-        # Phase 5 will: await REGISTRY.await_approval(run_id) then continue.
-        await REGISTRY.complete(run_id, status="awaiting_approval")
+        # LangGraph's async invoke is required because approval_gate + execute + stitch use async.
+        final = await graph.ainvoke(state)
+        final_state = ReelState.model_validate(final) if isinstance(final, dict) else final
+        run_dir = _runs_dir() / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "cost.json").write_text(
+            json.dumps([c.model_dump() for c in final_state.cost_ledger], indent=2, default=str)
+        )
+        if final_state.reel_path:
+            await REGISTRY.update(run_id, reel_path=str(final_state.reel_path))
+        if final_state.approved is False:
+            await REGISTRY.complete(run_id, status="rejected")
+        elif final_state.errors and any(e.fatal for e in final_state.errors):
+            await REGISTRY.complete(run_id, status="error")
+        else:
+            await REGISTRY.complete(run_id, status="completed")
     except Exception as e:
         await REGISTRY.publish(run_id, {"event": "error", "message": str(e)})
         await REGISTRY.complete(run_id, status="error")
@@ -67,12 +76,21 @@ async def _execute_run(run_id: str, prompt: str, duration_s: int, with_music: bo
         flush_langfuse()
 
 
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
 @app.post("/api/runs", response_model=CreateRunResponse)
-async def create_run(req: CreateRunRequest, bg: BackgroundTasks) -> CreateRunResponse:
+async def create_run(req: CreateRunRequest) -> CreateRunResponse:
     run_id = await REGISTRY.create(
         brief=req.prompt, duration_s=req.duration_s, with_music=req.with_music
     )
-    bg.add_task(_execute_run, run_id, req.prompt, req.duration_s, req.with_music)
+    # Detached background task; survives the request handler's return so
+    # the long-running graph (Extract -> Approval -> Execute -> Stitch) can run
+    # without blocking the response. We hold a reference to prevent the GC
+    # from collecting the task mid-flight (asyncio docs).
+    task = asyncio.create_task(_execute_run(run_id, req.prompt, req.duration_s, req.with_music))
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
     return CreateRunResponse(run_id=run_id)
 
 

@@ -77,13 +77,17 @@ def stitch_reel(
     captions: list[CaptionWord] | None,
     out: Path,
 ) -> None:
+    out = out.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     work = out.parent
     inputs: list[str] = []
     filter_parts: list[str] = []
 
     for i, scene in enumerate(plan.scenes):
-        img = image_paths[i]
+        # Resolve to absolute so ffmpeg can find inputs regardless of cwd.
+        # cwd is overridden to `work` so the `subtitles=` filter can reference
+        # captions.ass by its base name (ASS quoting in filter graphs is fiddly).
+        img = Path(image_paths[i]).resolve()
         frames = int(scene.duration_s * FPS)
         inputs += ["-loop", "1", "-t", str(scene.duration_s), "-i", str(img)]
         filter_parts.append(f"[{i}:v]{_motion_filter(scene.motion, frames)}[v{i}]")
@@ -99,11 +103,11 @@ def stitch_reel(
         filter_parts.append(f"[vbase]copy[vout]")
 
     voice_idx = len(plan.scenes)
-    inputs += ["-i", str(voiceover)]
+    inputs += ["-i", str(Path(voiceover).resolve())]
 
     if music is not None:
         music_idx = voice_idx + 1
-        inputs += ["-i", str(music)]
+        inputs += ["-i", str(Path(music).resolve())]
         filter_parts.append(
             f"[{music_idx}:a]volume=-18dB[mq];"
             f"[{voice_idx}:a][mq]amix=inputs=2:duration=longest:dropout_transition=2[aout]"
