@@ -1,0 +1,8 @@
+# Force LF line endings for shell scripts and text formats that need them.
+# Without this, Windows checkouts get CRLF and bash chokes on `bad interpreter: /usr/bin/env bash^M`.
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
