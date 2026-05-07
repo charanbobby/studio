@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv
+venv
+runs/
+experiments/out/
+experiments/cache/
+.env
+.env.local
