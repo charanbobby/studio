@@ -5,6 +5,8 @@ services:
     volumes:
       - ./runs:/app/runs
       - ./backend/src:/app/src
+      - ./backend/experiments:/app/experiments
+      - ./backend/tests:/app/tests
     ports: ["8000:8000"]
     environment:
       PYTHONUNBUFFERED: "1"
