@@ -20,52 +20,58 @@ Build a tool that generates a vertical Instagram-Reel-format MP4 (1080x1920, ~5-
 - Run locally via `docker compose up`; no hosted service the assessor can run on the user's API keys. Bring-your-own-keys via `.env`.
 - Default to 5s reel duration for cheap iteration; spec-compliant 90s on tape for the walkthrough.
 
-**Out of scope:** Instagram posting, frontend UI, multi-brand templating, deployment to a cloud host, GPU-accelerated local model serving.
+**Out of scope:** Instagram posting, multi-brand templating, deployment to a cloud host, GPU-accelerated local model serving, user auth / accounts, database persistence (filesystem-only).
 
 ## 2. Architecture
 
-A LangGraph state machine with four discrete nodes, each with one responsibility. Invoked by a CLI entry point. Every paid API call wrapped in cost-print pre/post helpers per global CLAUDE.md. Tracing via Langfuse Cloud free tier.
+Two services orchestrated via Docker Compose: a FastAPI backend wrapping a LangGraph state machine, and a Next.js frontend for prompt input + live progress + result viewing. The LangGraph pipeline has four discrete nodes, each with one responsibility. Every paid API call wrapped in cost-print pre/post helpers per global CLAUDE.md. Tracing via Langfuse Cloud free tier. Filesystem-only state under `runs/<run_id>/`; no database.
 
 ```
-                      ┌─────────────────────────────────────────────────┐
-   python -m          │           LangGraph State Machine               │
-   reel_gen           │                                                 │
-   --prompt "..." ──► │   ┌──────────┐                                  │
-   --duration 5       │   │ EXTRACT  │ Claude Haiku via OpenRouter      │
-                      │   │  node    │ (cached system prompt)           │
-                      │   └────┬─────┘ → ExtractedIntent                │
-                      │        │                                        │
-                      │        ▼                                        │
-                      │   ┌──────────┐                                  │
-                      │   │  PLAN    │ Claude Sonnet via OpenRouter     │
-                      │   │  node    │ (cached system + schema)         │
-                      │   └────┬─────┘ → ScriptPlan (auditable artifact)│
-                      │        │       writes runs/<id>/plan.json       │
-                      │        ▼                                        │
-                      │   ┌──────────────────────────────────────────┐  │
-                      │   │  EXECUTE (fan-out)                       │  │
-                      │   │   ├─ tts:        ElevenLabs Voice Clone  │  │
-                      │   │   │              + alignment timestamps   │  │
-                      │   │   ├─ visuals[N]: Flux Schnell on         │  │
-                      │   │   │              Replicate (parallel)    │  │
-                      │   │   └─ music:      ElevenLabs Music        │  │
-                      │   │                  (graceful degrade)       │  │
-                      │   └────┬─────────────────────────────────────┘  │
-                      │        │ → MediaAssets                          │
-                      │        ▼                                        │
-                      │   ┌──────────┐                                  │
-                      │   │  STITCH  │ ffmpeg (deterministic):          │
-                      │   │  node    │   - pad/crop to 1080x1920        │
-                      │   └────┬─────┘   - Ken Burns zoompan motion     │
-                      │        │         - audio mix + sidechain duck   │
-                      │        │         - burn-in captions from        │
-                      │        │           ElevenLabs alignment         │
-                      └────────┼────────────────────────────────────────┘
-                               ▼
-                       runs/<id>/reel.mp4
-                       runs/<id>/cost.json
-                       runs/<id>/plan.json
-                       Langfuse trace
+  Browser                                                                     
+   │                                                                          
+   │ POST /api/runs {prompt, duration_s, with_music}                          
+   ▼                                                                          
+  ┌──────────────────┐    SSE: per-node events    ┌──────────────────────┐    
+  │ Next.js frontend │ <───────────────────────── │  FastAPI backend     │    
+  │   /              │                            │  (uvicorn)           │    
+  │   /runs/[id]     │ <── GET /runs/{id}/reel ── │                      │    
+  └──────────────────┘                            │  Wraps LangGraph     │    
+                                                  │  state machine       │    
+                                                  └──────┬───────────────┘    
+                                                         │ run_graph(state)   
+                                                         ▼                    
+  ┌─────────────────────────────────────────────────────────────────────┐     
+  │                  LangGraph State Machine                            │     
+  │   ┌──────────┐                                                      │     
+  │   │ EXTRACT  │ Claude Haiku via OpenRouter (cached system prompt)   │     
+  │   │  node    │ → ExtractedIntent                                    │     
+  │   └────┬─────┘                                                      │     
+  │        ▼                                                            │     
+  │   ┌──────────┐                                                      │     
+  │   │  PLAN    │ Claude Sonnet via OpenRouter (cached system+schema)  │     
+  │   │  node    │ → ScriptPlan, writes runs/<id>/plan.json             │     
+  │   └────┬─────┘                                                      │     
+  │        ▼                                                            │     
+  │   ┌─────────────────────────────────────────────────┐               │     
+  │   │  EXECUTE (parallel fan-out)                     │               │     
+  │   │   ├─ tts:        ElevenLabs Voice Clone         │               │     
+  │   │   │              + alignment timestamps         │               │     
+  │   │   ├─ visuals[N]: Flux Schnell on Replicate      │               │     
+  │   │   │              (asyncio.gather across scenes) │               │     
+  │   │   └─ music:      ElevenLabs Music               │               │     
+  │   │                  (graceful degrade to silence)  │               │     
+  │   └────┬────────────────────────────────────────────┘               │     
+  │        ▼                                                            │     
+  │   ┌──────────┐                                                      │     
+  │   │  STITCH  │ ffmpeg (deterministic):                              │     
+  │   │  node    │   - pad/crop to 1080x1920                            │     
+  │   └────┬─────┘   - Ken Burns zoompan motion                         │     
+  │        │         - audio mix + sidechain duck                       │     
+  │        │         - burn-in captions from alignment                  │     
+  └────────┼────────────────────────────────────────────────────────────┘     
+           ▼                                                                  
+   runs/<id>/reel.mp4   runs/<id>/cost.json   runs/<id>/plan.json             
+                                Langfuse trace                                
 ```
 
 ### Why this decomposition (per SKILL.md Phase 5)
@@ -177,7 +183,7 @@ docs/
     002-flux-schnell-over-sdxl.md
     003-elevenlabs-voiceclone.md
     004-5s-default-with-90s-on-tape.md
-    005-cli-only-no-frontend.md
+    005-frontend-included-nextjs-fastapi.md
     006-byo-keys-no-hosted-service.md
     007-langfuse-cloud-tracing.md
     008-captions-via-elevenlabs-alignment.md
@@ -198,29 +204,95 @@ This approach is what makes Components B and C cheap to produce instead of frant
 ```
 D:\Python Applications\CSC\
 ├── README.md
-├── pyproject.toml                  # uv-managed, Python 3.12
-├── docker-compose.yml
-├── Dockerfile                      # python:3.12-slim + ffmpeg + uv
-├── .env.example
-├── .failfast.list                  # gates src/reel_gen/nodes/*.py
-├── src/reel_gen/
-│   ├── __main__.py                 # python -m reel_gen --prompt "..." --duration 5
-│   ├── state.py                    # Pydantic models
-│   ├── graph.py                    # LangGraph wiring
-│   ├── nodes/                      # extract.py, plan.py, execute_*.py, stitch.py
-│   ├── llm/                        # openrouter client + cost helpers + prompts/
-│   ├── media/                      # elevenlabs_tts.py, replicate_flux.py, ffmpeg_stitch.py
-│   ├── cache/content_hash.py       # dev-mode asset cache
-│   └── tracing/langfuse_client.py
-├── experiments/                    # SKILL.md Phase 3
-│   ├── notebook_e2e.ipynb
-│   └── probe_*.py
-├── runs/                           # gitignored; intent.json, plan.json, *.mp3, *.png, reel.mp4, cost.json
+├── docker-compose.yml              # backend + frontend services
+├── .env.example                    # all keys for backend
+├── .failfast.list                  # gates backend/src/reel_gen/nodes/*.py
+├── backend/
+│   ├── Dockerfile                  # python:3.12-slim + ffmpeg + uv
+│   ├── pyproject.toml              # uv-managed
+│   ├── src/reel_gen/
+│   │   ├── __main__.py             # CLI fallback: python -m reel_gen ...
+│   │   ├── api.py                  # FastAPI app: routes, SSE, run lifecycle
+│   │   ├── state.py                # Pydantic models (ReelState, ScriptPlan, ...)
+│   │   ├── graph.py                # LangGraph wiring
+│   │   ├── nodes/                  # extract.py, plan.py, execute_*.py, stitch.py
+│   │   ├── llm/                    # openrouter client + cost helpers + prompts/
+│   │   ├── media/                  # elevenlabs_tts.py, replicate_flux.py, ffmpeg_stitch.py
+│   │   ├── cache/content_hash.py   # dev-mode asset cache
+│   │   └── tracing/langfuse_client.py
+│   └── experiments/                # SKILL.md Phase 3
+│       ├── notebook_e2e.ipynb
+│       └── probe_*.py
+├── frontend/
+│   ├── Dockerfile                  # node:20-alpine
+│   ├── package.json                # next, react, tailwind, typescript
+│   ├── app/                        # Next.js 14 App Router
+│   │   ├── layout.tsx
+│   │   ├── page.tsx                # / (new run form)
+│   │   ├── runs/
+│   │   │   ├── page.tsx            # /runs (history)
+│   │   │   └── [id]/page.tsx       # /runs/{id} (live status + result)
+│   │   └── globals.css             # Tailwind base
+│   ├── components/                 # PromptForm, ProgressTimeline, PlanPreview, ReelPlayer, CostLedger
+│   └── lib/                        # api client, SSE hook, types mirroring backend Pydantic models
+├── runs/                           # gitignored; mounted into both services as a shared volume
+│   └── <run_id>/
+│       ├── intent.json
+│       ├── plan.json
+│       ├── voiceover.mp3
+│       ├── scene_*.png
+│       ├── music.mp3
+│       ├── reel.mp4
+│       └── cost.json
 ├── docs/                           # decisions/, build-journal.md, walkthrough-script.md, questionnaire-draft.md, diagrams.html, superpowers/specs/
 ├── memory/                         # already seeded
 ├── scripts/                        # already installed: probe.sh, fail-fast-gate.sh, pre-commit-fail-fast.sh
 └── .probes/                        # already installed
 ```
+
+### 8a. Docker Compose
+
+```yaml
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - ./runs:/app/runs
+    ports: ["8000:8000"]
+    command: uvicorn reel_gen.api:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [backend]
+    command: npm run start
+```
+
+### 8b. Backend API surface
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/runs` | Start a run; body: `{prompt, duration_s, with_music, review_plan_first}`. Returns `{run_id}`. |
+| `GET` | `/api/runs` | List past runs with thumbnails (latest first). |
+| `GET` | `/api/runs/{id}` | Run status snapshot: phase, plan, cost ledger, error list, reel URL when ready. |
+| `GET` | `/api/runs/{id}/stream` | Server-Sent Events: per-node start/end, cost entries, errors. Frontend subscribes here while the run is live. |
+| `POST` | `/api/runs/{id}/approve-plan` | Stretch goal: when `review_plan_first=True`, this is the gate Execute waits for. |
+| `GET` | `/api/runs/{id}/reel.mp4` | The generated MP4. Streamed from disk. |
+| `GET` | `/api/runs/{id}/plan.json` | The auditable plan artifact. |
+| `GET` | `/healthz` | Liveness probe for Docker. |
+
+### 8c. Frontend pages
+
+| Route | Components | Purpose |
+|-------|-----------|---------|
+| `/` | `PromptForm` | New run: prompt textarea, duration slider (5-90s), music toggle (default off, auto-on at >=30s), voice select (defaults to user's clone), Generate button. On submit POSTs `/api/runs` and routes to `/runs/{id}`. |
+| `/runs/{id}` | `ProgressTimeline`, `PlanPreview`, `CostLedger`, `ReelPlayer` | Subscribes to SSE. Shows Extract/Plan/Execute/Stitch as a vertical timeline with per-node status. When Plan completes, `PlanPreview` renders `plan.json` (hook, scene-by-scene shots, voiceover script). When Stitch completes, `ReelPlayer` shows the MP4 with a download link. `CostLedger` streams entries inline. Footer link to the Langfuse trace. |
+| `/runs` | `RunCard[]` | History grid: each card shows the prompt, thumbnail (last frame of reel), cost, date. Click to open `/runs/{id}`. |
+
+UI is deliberately spartan: Tailwind defaults, no design system, clean typography. Goal is professional and functional in the walkthrough video, not portfolio-stunning. (Stretch polish if time permits.)
 
 ## 9. Walkthrough video plan (Component B, 10-15 min)
 
@@ -229,9 +301,9 @@ D:\Python Applications\CSC\
 | Hook | 0:30 | Show the final 90s reel up front so panel knows it works |
 | The brief | 1:00 | Why option 3, why a tool I'd keep using |
 | LangGraph over n8n | 2:00 | Walk through ADR-001; explicit about respect for n8n in its lane |
-| Architecture | 2:30 | 4-node decomposition, state schema, plan.json as auditable artifact |
+| Architecture | 2:30 | 4-node decomposition, state schema, plan.json as auditable artifact, FastAPI wrapper + SSE per-node events |
 | Fail-fast probes | 1:30 | Show probe scripts, run probe 10 live |
-| Live demo | 2:30 | `python -m reel_gen` → plan.json → reel.mp4; play the 90s version recorded earlier |
+| Live demo | 2:30 | Open the Next.js UI, type the brief, click Generate, narrate the live SSE stream as Extract -> Plan -> Execute -> Stitch nodes complete. Show plan.json preview rendering inline. Final video plays in the browser. Then play the 90s version recorded earlier. |
 | Observability + cost | 1:00 | Langfuse trace, cost.json, $250/month for 1000 reels math |
 | Failure handling | 1:30 | Pydantic validation, NSFW retry, music degrade, scene fallback |
 | What's next + limits | 1:00 | Stretch goals, honest limits |
@@ -257,19 +329,25 @@ The build is the proof-of-work for 5 of the 9 questions. The assessment is desig
 
 ## 11. Schedule (rough)
 
-- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-010 backfilled.
-- Day 1 afternoon: Extract + Plan nodes + plan.json artifact. Build journal entries.
-- Day 2 morning: Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3.
-- Day 2 afternoon: Stitch node + ffmpeg recipes. End-to-end run at 5s. Then 90s.
-- Day 3 morning: Diagrams.html. Walkthrough script polish. Questionnaire-draft polish.
-- Day 3 afternoon: Record walkthrough video. Final submission package.
+- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-011 backfilled (011 covers the UI scope addition).
+- Day 1 afternoon: Extract + Plan nodes + plan.json artifact. FastAPI `api.py` skeleton with `POST /api/runs` + SSE endpoint stub. Build journal entries.
+- Day 2 morning: Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3. Wire LangGraph node events to SSE.
+- Day 2 afternoon: Stitch node + ffmpeg recipes. End-to-end run at 5s via API. Then 90s.
+- Day 3 morning: Next.js frontend (`/`, `/runs/[id]`, components). Tailwind styling. Smoke test through the browser. Diagrams.html. Walkthrough script polish.
+- Day 3 afternoon: Record walkthrough video using the UI as the demo surface (not just CLI). Final submission package.
+
+**Risk callouts:**
+- The frontend day is the most compressible if probes or backend slip. Fallback: ship CLI-only and skip frontend; the existing CLI path is preserved as `python -m reel_gen ...` for this exact reason.
+- Plan-review-first toggle is explicitly stretch; ship without it first.
 
 ## 12. Open items / stretch goals
 
 - IG posting via Graph API (deferred; not in scope)
-- Frontend UI (deferred; CLI is sufficient for assessment)
+- Plan-review-first toggle (Phase 6c human-in-the-loop checkpoint; ship core flow first, add if time)
 - Music gen at >=30s reels (probe 08, deferred)
 - Multi-brand presets (post-assessment, personal-use feature)
+- Auth and multi-user support (single-user local tool by design)
+- Run history search / filtering (basic list only at submission)
 
 ## 13. References
 
