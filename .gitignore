@@ -16,7 +16,7 @@ venv/
 .uv-cache/
 
 # Run artifacts (generated reels, intermediate assets, traces)
-runs/
+/runs/
 out/
 experiments/out/
 experiments/cache/
