@@ -1,5 +1,8 @@
-# CSC Reel Generator: Design Spec
+# Sri Studio: Design Spec
 
+**Product name:** Sri Studio
+**Deployment target:** studio.sshub.dev
+**Codebase:** `reel_gen` Python package + `sri-studio` frontend (the descriptive name lives in code; the brand name lives at the user surface)
 **Date:** 2026-05-07
 **Author:** Sricharan Sunkara, with Claude Code as thinking partner
 **Submission target:** CSC Generation, AI Solutions Engineer take-home
@@ -17,8 +20,9 @@ Build a tool that generates a vertical Instagram-Reel-format MP4 (1080x1920, ~5-
 - Be a tool the user keeps using personally after the interview, not a one-shot demo.
 - Speak in the user's own cloned voice across every generated reel.
 - Cost less than ~$0.30 per 90s reel and less than ~$0.05 per 5s reel in API spend.
-- Run locally via `docker compose up`; no hosted service the assessor can run on the user's API keys. Bring-your-own-keys via `.env`.
 - Default to 5s reel duration for cheap iteration; spec-compliant 90s on tape for the walkthrough.
+- Run locally via `docker compose up` for development.
+- Deploy to **studio.sshub.dev** via Hetzner so the assessor sees a live production URL. Access gated by HTTP basic auth; one credential pair for the user, one temporary pair shared with CSC for the interview window. Daily cost cap aborts new runs when exceeded so the assessor cannot accidentally burn the user's API budget.
 
 **Out of scope:** Instagram posting, multi-brand templating, deployment to a cloud host, GPU-accelerated local model serving, user auth / accounts, database persistence (filesystem-only).
 
@@ -184,11 +188,13 @@ docs/
     003-elevenlabs-voiceclone.md
     004-5s-default-with-90s-on-tape.md
     005-frontend-included-nextjs-fastapi.md
-    006-byo-keys-no-hosted-service.md
-    007-langfuse-cloud-tracing.md
-    008-captions-via-elevenlabs-alignment.md
-    009-no-music-at-5s-default.md
-    010-fail-fast-probe-matrix-as-phase-gate.md
+    006-langfuse-cloud-tracing.md
+    007-captions-via-elevenlabs-alignment.md
+    008-no-music-at-5s-default.md
+    009-fail-fast-probe-matrix-as-phase-gate.md
+    010-runs-as-filesystem-no-database.md
+    011-sri-studio-name-and-studio-sshub-dev-deployment.md
+    012-basic-auth-and-daily-cost-cap.md
   build-journal.md              # rolling chronological log
   walkthrough-script.md         # SKILL.md Phase 10b template
   questionnaire-draft.md        # 9 question sections, evidence accrues
@@ -292,21 +298,34 @@ services:
 | `/runs/{id}` | `ProgressTimeline`, `PlanPreview`, `CostLedger`, `ReelPlayer` | Subscribes to SSE. Shows Extract/Plan/Execute/Stitch as a vertical timeline with per-node status. When Plan completes, `PlanPreview` renders `plan.json` (hook, scene-by-scene shots, voiceover script). When Stitch completes, `ReelPlayer` shows the MP4 with a download link. `CostLedger` streams entries inline. Footer link to the Langfuse trace. |
 | `/runs` | `RunCard[]` | History grid: each card shows the prompt, thumbnail (last frame of reel), cost, date. Click to open `/runs/{id}`. |
 
-UI is deliberately spartan: Tailwind defaults, no design system, clean typography. Goal is professional and functional in the walkthrough video, not portfolio-stunning. (Stretch polish if time permits.)
+UI is deliberately spartan: Tailwind defaults, no design system, clean typography. Goal is professional and functional in the walkthrough video, not portfolio-stunning. Branded as **Sri Studio** across the page header, favicon, and `<title>` tag. (Stretch polish if time permits.)
+
+### 8d. Deployment (studio.sshub.dev)
+
+Per SKILL.md Phase 9.
+
+- **Host:** Hetzner Cloud (using the user's existing Hetzner Cloud Setup pattern from `d:\Python Applications\Hetzner Cloud Setup`).
+- **Reverse proxy:** nginx terminating TLS via Let's Encrypt for `studio.sshub.dev`. nginx routes `/` and `/runs/*` to the frontend container, `/api/*` to the backend container, with SSE keep-alive timeouts tuned for long-running runs.
+- **Auth:** HTTP basic auth at the nginx layer (cheapest possible gate). Two credential pairs in `.htpasswd`: one for the user (long-lived), one for CSC (provisioned for the interview window, revoked after).
+- **Cost cap:** backend tracks per-day cost in a JSON file in the runs volume; before any paid API call, `_llm_cost_pre` checks the day's running total and aborts the run with a friendly error if it exceeds `DAILY_COST_CAP_USD` (default $5). The cap is independent of user/credential.
+- **Secrets:** all API keys in `.env` on the server only. Never in git, never in the Docker image. Bumping `APP_VERSION` before each deploy per SKILL.md Phase 9.
+- **Volumes:** named volume for `runs/` so generated reels survive container restarts.
+- **Healthcheck:** nginx checks `GET /healthz` on the backend; frontend has its own readiness check.
 
 ## 9. Walkthrough video plan (Component B, 10-15 min)
 
 | Section | Duration | Content |
 |---------|----------|---------|
-| Hook | 0:30 | Show the final 90s reel up front so panel knows it works |
-| The brief | 1:00 | Why option 3, why a tool I'd keep using |
+| Hook | 0:30 | Open at https://studio.sshub.dev. "This is Sri Studio. It generates reels in my voice. Let me show you." Play the final 90s reel up front so panel knows it works. |
+| The brief | 1:00 | Why option 3, why a tool I'd keep using, why I deployed instead of demoing locally |
 | LangGraph over n8n | 2:00 | Walk through ADR-001; explicit about respect for n8n in its lane |
 | Architecture | 2:30 | 4-node decomposition, state schema, plan.json as auditable artifact, FastAPI wrapper + SSE per-node events |
 | Fail-fast probes | 1:30 | Show probe scripts, run probe 10 live |
-| Live demo | 2:30 | Open the Next.js UI, type the brief, click Generate, narrate the live SSE stream as Extract -> Plan -> Execute -> Stitch nodes complete. Show plan.json preview rendering inline. Final video plays in the browser. Then play the 90s version recorded earlier. |
-| Observability + cost | 1:00 | Langfuse trace, cost.json, $250/month for 1000 reels math |
-| Failure handling | 1:30 | Pydantic validation, NSFW retry, music degrade, scene fallback |
-| What's next + limits | 1:00 | Stretch goals, honest limits |
+| Live demo | 2:30 | Open the live Sri Studio UI at studio.sshub.dev, type the brief, click Generate, narrate the live SSE stream as Extract -> Plan -> Execute -> Stitch nodes complete. Show plan.json preview rendering inline. Final video plays in the browser. Then play the 90s version recorded earlier. |
+| Observability + cost | 1:00 | Langfuse trace, cost.json, daily cost cap, $250/month for 1000 reels math |
+| Failure handling | 1:30 | Pydantic validation, NSFW retry, music degrade, scene fallback, cost-cap abort |
+| Production deployment | 1:00 | Hetzner + Docker Compose + nginx + Let's Encrypt + basic auth at studio.sshub.dev. SKILL.md Phase 9 in production for this build, not just prior projects. |
+| What's next + limits | 0:30 | Stretch goals, honest limits |
 | My role vs AI's | 0:30 | SKILL.md two-column close + pattern statement |
 
 Recording rule: voice in the walkthrough = the same cloned voice in the reels. Continuity hook nobody else will have.
@@ -317,8 +336,8 @@ Recording rule: voice in the walkthrough = the same cloned voice in the reels. C
 |---|----------|
 | Q1 hours/week | Direct honest answer |
 | Q2 active tools | Lead with Claude Code, OpenRouter, ElevenLabs, Replicate, Langfuse, n8n |
-| Q3 automation built | Lead with this build (recursive); 2nd Find Evil; 3rd Fair Play / MaplePulse |
-| Q4 most complex production | Find Evil DFIR pipeline (Slice 5 retro source) |
+| Q3 automation built | Lead with this build (recursive; live URL studio.sshub.dev); 2nd Find Evil; 3rd Fair Play / MaplePulse |
+| Q4 most complex production | Sri Studio deployed at studio.sshub.dev via Hetzner + nginx + Let's Encrypt + basic auth + cost cap (this build is itself a production deployment); 2nd Find Evil DFIR pipeline |
 | Q5 manual process translation | Fair Play document-to-DB pipeline |
 | Q6 handling pushback | This build's n8n -> LangGraph reasoning; cite ADR-001 |
 | Q7 kept human-only | plan.json review point, voice clone IDs user-supplied, deterministic NSFW retry |
@@ -329,15 +348,17 @@ The build is the proof-of-work for 5 of the 9 questions. The assessment is desig
 
 ## 11. Schedule (rough)
 
-- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-011 backfilled (011 covers the UI scope addition).
-- Day 1 afternoon: Extract + Plan nodes + plan.json artifact. FastAPI `api.py` skeleton with `POST /api/runs` + SSE endpoint stub. Build journal entries.
+- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-013 backfilled (012 covers the UI scope addition; 013 covers the Sri Studio name + studio.sshub.dev deployment).
+- Day 1 afternoon: Extract + Plan nodes + plan.json artifact. FastAPI `api.py` skeleton with `POST /api/runs` + SSE endpoint stub. Cost-cap helper. Build journal entries.
 - Day 2 morning: Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3. Wire LangGraph node events to SSE.
 - Day 2 afternoon: Stitch node + ffmpeg recipes. End-to-end run at 5s via API. Then 90s.
-- Day 3 morning: Next.js frontend (`/`, `/runs/[id]`, components). Tailwind styling. Smoke test through the browser. Diagrams.html. Walkthrough script polish.
-- Day 3 afternoon: Record walkthrough video using the UI as the demo surface (not just CLI). Final submission package.
+- Day 3 morning: Next.js frontend (`/`, `/runs/[id]`, components). Tailwind styling. Sri Studio branding (header, favicon, title). Smoke test through the browser locally.
+- Day 3 afternoon: Deploy to studio.sshub.dev via existing Hetzner pattern. nginx + Let's Encrypt + basic auth. Smoke test the live URL. Diagrams.html. Walkthrough script polish.
+- Day 3 evening: Record walkthrough video using the live studio.sshub.dev URL as the demo surface. Final submission package.
 
 **Risk callouts:**
-- The frontend day is the most compressible if probes or backend slip. Fallback: ship CLI-only and skip frontend; the existing CLI path is preserved as `python -m reel_gen ...` for this exact reason.
+- The frontend half-day is the most compressible. Fallback: ship CLI-only locally and demo via screen share; the CLI path is preserved as `python -m reel_gen ...` for this exact reason.
+- Deployment depends on the existing Hetzner pattern being in working order. Fallback: demo locally and link the assessor to the GitHub repo if the deploy slips.
 - Plan-review-first toggle is explicitly stretch; ship without it first.
 
 ## 12. Open items / stretch goals
