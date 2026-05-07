@@ -348,7 +348,7 @@ The build is the proof-of-work for 5 of the 9 questions. The assessment is desig
 
 ## 11. Schedule (rough)
 
-- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-013 backfilled (012 covers the UI scope addition; 013 covers the Sri Studio name + studio.sshub.dev deployment).
+- Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-012 backfilled (011 covers the Sri Studio name + studio.sshub.dev deployment; 012 covers basic auth + daily cost cap).
 - Day 1 afternoon: Extract + Plan nodes + plan.json artifact. FastAPI `api.py` skeleton with `POST /api/runs` + SSE endpoint stub. Cost-cap helper. Build journal entries.
 - Day 2 morning: Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3. Wire LangGraph node events to SSE.
 - Day 2 afternoon: Stitch node + ffmpeg recipes. End-to-end run at 5s via API. Then 90s.
