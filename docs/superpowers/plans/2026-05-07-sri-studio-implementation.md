@@ -18,7 +18,7 @@
 1. **No em dashes (U+2014) in any file content.** Use comma, semicolon, period, colon, or parens.
 2. **Always `uv`, never `pip`.** For ad-hoc Docker probes use `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`.
 3. **Probe before code.** Each external API gets a probe in `experiments/probe_*.py` that runs against the real service and exits 0 before the matching node code lands.
-4. **Print cost pre/post every LLM call.** Use `_llm_cost_pre()` and `_llm_cost_post()` helpers (Phase 2 implements them).
+4. **Print cost pre/post every paid API call.** LLM calls use `llm_cost_pre()` / `llm_cost_post()`; non-LLM paid calls (Replicate, ElevenLabs) use `unit_cost_pre()` / `unit_cost_post()`. Phase 2 implements them. The PRE line prints rate + estimate so the bill is visible BEFORE the API call returns. ElevenLabs TTS also prints the monthly char quota status on every call.
 5. **Size guard tool output before LLM.** Anything sent to a Claude call that comes from another tool is checked for size and trimmed if over 50 KB.
 6. **Fail-fast gate is dormant by default in this project.** No `.failfast.list` is committed; if you want enforcement during this plan, copy `.failfast.list.example` to `.failfast.list` after Phase 2.
 7. **Frequent commits.** Each task ends with a commit. Do not batch.
@@ -1565,12 +1565,29 @@ def test_cost_for_units_image():
     # Flux Schnell at $0.003 per image.
     c = cost_for_units(provider="replicate", unit_label="images", units=2)
     assert abs(c - 0.006) < 1e-6
+
+
+def test_unit_cost_pre_prints_rate_and_estimate(capsys):
+    from reel_gen.llm.cost import unit_cost_pre
+    unit_cost_pre(phase="image", provider="replicate", unit_label="images", units=3)
+    out = capsys.readouterr().out
+    assert "[COST PRE]" in out
+    assert "replicate" in out
+    assert "unit_rate=$0.003" in out
+    assert "est_cost=$0.009" in out
+
+
+def test_unit_cost_pre_unknown_rate_logs_warning(capsys):
+    from reel_gen.llm.cost import unit_cost_pre
+    unit_cost_pre(phase="x", provider="unknown", unit_label="zzz", units=1)
+    out = capsys.readouterr().out
+    assert "rate=unknown" in out
 ```
 
 - [ ] **Step 2: Run test, expect failure**
 
 Run: `docker compose run --rm backend pytest tests/test_cost.py -v`
-Expected: ModuleNotFoundError.
+Expected: ModuleNotFoundError or `AttributeError: unit_cost_pre` after partial implementation.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1606,10 +1623,27 @@ RATES: dict[str, dict[str, float]] = {
 }
 
 # Per-unit pricing for non-token APIs.
+#
+# Sources (verified 2026-05-07; re-verify if a probe shows a different bill):
+#   - Replicate Flux Schnell:
+#       https://replicate.com/black-forest-labs/flux-schnell
+#       $0.003 per image at default 4 MP-second budget; 9:16 outputs land
+#       under that budget so each call bills $0.003.
+#   - ElevenLabs Starter ($5 / month):
+#       30,000 characters / month included; ~$0.00017 per included character.
+#       We use $0.00030 as a conservative "marginal cost" estimate so the
+#       cost ledger overstates rather than understates spend.
+#   - ElevenLabs Music (when enabled):
+#       Pricing TBD until probe_08 lands; $0.005/s is a placeholder.
+#
+# The unit_cost_pre helper prints these rates on every call so a reader of
+# the terminal output sees the price BEFORE the bill arrives. Per global
+# CLAUDE.md: never quote LLM cost without measuring; never silently skip
+# an unknown rate.
 UNIT_RATES: dict[tuple[str, str], float] = {
-    ("replicate", "images"): 0.003,        # Flux Schnell, USD per image
-    ("elevenlabs", "tts_chars"): 0.00030,  # USD per character (Starter plan)
-    ("elevenlabs", "music_seconds"): 0.005,  # USD per second of generated music
+    ("replicate", "images"): 0.003,         # Flux Schnell, USD per image
+    ("elevenlabs", "tts_chars"): 0.00030,   # USD per character (conservative)
+    ("elevenlabs", "music_seconds"): 0.005, # USD per second (placeholder; verify)
 }
 
 
@@ -1685,6 +1719,29 @@ def llm_cost_post(
         cost_usd=(cost or 0.0),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+
+
+def unit_cost_pre(
+    *,
+    phase: str,
+    provider: str,
+    unit_label: str,
+    units: float,
+) -> None:
+    """Print PRE-call cost estimate for non-LLM paid APIs.
+
+    Called BEFORE every Replicate / ElevenLabs / etc paid call. Symmetric to
+    llm_cost_pre. Per global CLAUDE.md hard rule: print cost pre AND post for
+    every paid API call.
+    """
+    rate = UNIT_RATES.get((provider, unit_label))
+    if rate is None:
+        print(f"[COST PRE] phase={phase} provider={provider} "
+              f"{unit_label}={units} rate=unknown")
+        return
+    est = round(units * rate, 6)
+    print(f"[COST PRE] phase={phase} provider={provider} "
+          f"{unit_label}={units} unit_rate=${rate} est_cost=${est}")
 
 
 def unit_cost_post(
@@ -1850,7 +1907,174 @@ git add backend/src/reel_gen/llm/cost_cap.py backend/tests/test_cost_cap.py
 git commit -m "feat(cost-cap): daily UTC cost cap with JSON ledger + check/add API"
 ```
 
-### Task 2.4: Langfuse client wrapper
+### Task 2.4: ElevenLabs monthly character quota
+
+**Why this exists:** The Starter ElevenLabs plan caps at 30,000 characters per month. Going over silently bills the next plan tier or chops off audio. This module surfaces remaining quota on every TTS call and refuses new calls when the projected usage would exceed the limit.
+
+**Files:**
+- Create: `backend/src/reel_gen/llm/elevenlabs_quota.py`
+- Create: `backend/tests/test_elevenlabs_quota.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/tests/test_elevenlabs_quota.py
+import pytest
+
+from reel_gen.llm.elevenlabs_quota import (
+    ElevenLabsQuotaExceeded,
+    add_chars_to_month,
+    check_char_quota,
+    month_total_chars,
+    remaining_chars,
+)
+
+
+def test_add_and_total(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("ELEVENLABS_MONTHLY_CHAR_LIMIT", "30000")
+    add_chars_to_month(500)
+    add_chars_to_month(250)
+    assert month_total_chars() == 750
+    assert remaining_chars() == 30000 - 750
+
+
+def test_check_char_quota_under(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("ELEVENLABS_MONTHLY_CHAR_LIMIT", "30000")
+    monkeypatch.setenv("ELEVENLABS_QUOTA_BLOCK_AT_PCT", "90")
+    add_chars_to_month(20000)  # 66.7% used
+    check_char_quota(prospective_chars=200)  # would be 67.3%, under 90%
+
+
+def test_check_char_quota_over_raises(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("ELEVENLABS_MONTHLY_CHAR_LIMIT", "1000")
+    monkeypatch.setenv("ELEVENLABS_QUOTA_BLOCK_AT_PCT", "90")
+    add_chars_to_month(850)
+    with pytest.raises(ElevenLabsQuotaExceeded):
+        check_char_quota(prospective_chars=100)  # 95% > 90% threshold
+```
+
+- [ ] **Step 2: Run test, expect failure**
+
+Run: `docker compose run --rm backend pytest tests/test_elevenlabs_quota.py -v`
+Expected: ModuleNotFoundError on `reel_gen.llm.elevenlabs_quota`.
+
+- [ ] **Step 3: Write the implementation**
+
+```python
+# backend/src/reel_gen/llm/elevenlabs_quota.py
+"""Monthly ElevenLabs character quota tracking.
+
+Starter plan: 30,000 chars/month (~30 min audio at 1000 chars/min spoken).
+Creator plan: 100,000 chars/month (~100 min). Set ELEVENLABS_MONTHLY_CHAR_LIMIT
+in .env to match your plan.
+
+Block threshold: ELEVENLABS_QUOTA_BLOCK_AT_PCT (default 90). Once today's run
+would push usage past this percentage, new TTS calls raise rather than
+quietly burning into the next billing tier.
+
+State lives in <RUNS_DIR>/_monthly_usage.json keyed by 'YYYY-MM'.
+"""
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+class ElevenLabsQuotaExceeded(RuntimeError):
+    """Raised when the projected monthly char usage exceeds the block threshold."""
+
+
+def _quota_file() -> Path:
+    runs = Path(os.environ.get("RUNS_DIR", "./runs"))
+    runs.mkdir(parents=True, exist_ok=True)
+    return runs / "_monthly_usage.json"
+
+
+def _month_key() -> str:
+    n = datetime.now(timezone.utc)
+    return f"{n.year:04d}-{n.month:02d}"
+
+
+def _load() -> dict:
+    f = _quota_file()
+    if not f.exists():
+        return {}
+    try:
+        return json.loads(f.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def _save(data: dict) -> None:
+    _quota_file().write_text(json.dumps(data, indent=2))
+
+
+def month_total_chars() -> int:
+    return int(_load().get(_month_key(), 0))
+
+
+def add_chars_to_month(chars: int) -> None:
+    data = _load()
+    key = _month_key()
+    data[key] = int(data.get(key, 0)) + int(chars)
+    _save(data)
+
+
+def _limit() -> int:
+    return int(os.environ.get("ELEVENLABS_MONTHLY_CHAR_LIMIT", "30000"))
+
+
+def remaining_chars() -> int:
+    return max(0, _limit() - month_total_chars())
+
+
+def usage_pct() -> float:
+    limit = _limit()
+    return 0.0 if limit == 0 else (month_total_chars() / limit) * 100.0
+
+
+def check_char_quota(*, prospective_chars: int) -> None:
+    """Raise if (current + prospective) / limit exceeds block threshold."""
+    block_at = float(os.environ.get("ELEVENLABS_QUOTA_BLOCK_AT_PCT", "90"))
+    limit = _limit()
+    projected = month_total_chars() + int(prospective_chars)
+    projected_pct = (projected / limit) * 100.0 if limit > 0 else 0.0
+    if projected_pct > block_at:
+        raise ElevenLabsQuotaExceeded(
+            f"ElevenLabs monthly char quota would exceed block threshold "
+            f"of {block_at:.0f}%: month_used={month_total_chars()}, "
+            f"prospective={prospective_chars}, limit={limit}, "
+            f"projected_pct={projected_pct:.1f}%. "
+            f"Raise ELEVENLABS_QUOTA_BLOCK_AT_PCT or upgrade plan."
+        )
+
+
+def quota_status_line() -> str:
+    """One-line status for printing on every TTS call."""
+    return (
+        f"[QUOTA] elevenlabs month_chars={month_total_chars()} / "
+        f"{_limit()} ({usage_pct():.1f}% used, {remaining_chars()} remaining)"
+    )
+```
+
+- [ ] **Step 4: Run test, expect pass**
+
+Run: `docker compose run --rm backend pytest tests/test_elevenlabs_quota.py -v`
+Expected: 3 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/src/reel_gen/llm/elevenlabs_quota.py backend/tests/test_elevenlabs_quota.py
+git commit -m "feat(quota): ElevenLabs monthly char tracker with block threshold"
+```
+
+### Task 2.5: Langfuse client wrapper
 
 **Files:**
 - Create: `backend/src/reel_gen/tracing/__init__.py`
@@ -1965,7 +2189,7 @@ git add backend/src/reel_gen/tracing/ backend/tests/test_langfuse_client.py
 git commit -m "feat(tracing): Langfuse Cloud singleton + with_span decorator"
 ```
 
-### Task 2.5: OpenRouter client with caching
+### Task 2.6: OpenRouter client with caching
 
 **Files:**
 - Create: `backend/src/reel_gen/llm/openrouter.py`
@@ -3094,6 +3318,10 @@ from reel_gen.media.elevenlabs_tts import generate_voiceover
 def test_generate_voiceover_writes_mp3_and_alignment(tmp_path, monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
     monkeypatch.setenv("ELEVENLABS_VOICE_ID", "v")
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("DAILY_COST_CAP_USD", "5.00")
+    monkeypatch.setenv("ELEVENLABS_MONTHLY_CHAR_LIMIT", "30000")
+    monkeypatch.setenv("ELEVENLABS_QUOTA_BLOCK_AT_PCT", "90")
 
     fake_mp3 = b"\xff\xfb\x90\x44\x00" + b"\0" * 200
     payload = {
@@ -3129,7 +3357,12 @@ Expected: ModuleNotFoundError.
 
 ```python
 # backend/src/reel_gen/media/elevenlabs_tts.py
-"""ElevenLabs voice-clone TTS with alignment-based caption extraction."""
+"""ElevenLabs voice-clone TTS with alignment-based caption extraction.
+
+Cost transparency: prints cost PRE (estimate) and POST (actual) for every
+call. Also enforces the monthly character quota; raises before the API
+call if usage would exceed ELEVENLABS_QUOTA_BLOCK_AT_PCT (default 90%).
+"""
 from __future__ import annotations
 
 import base64
@@ -3138,8 +3371,13 @@ from pathlib import Path
 
 import httpx
 
-from reel_gen.llm.cost import unit_cost_post
+from reel_gen.llm.cost import unit_cost_post, unit_cost_pre
 from reel_gen.llm.cost_cap import add_to_today, check_cap
+from reel_gen.llm.elevenlabs_quota import (
+    add_chars_to_month,
+    check_char_quota,
+    quota_status_line,
+)
 from reel_gen.state import CaptionWord, CostEntry
 
 
@@ -3173,10 +3411,17 @@ def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionW
     api_key = os.environ["ELEVENLABS_API_KEY"]
     chars_used = len(text)
 
-    # Pre-cap check (estimate via published per-character rate).
+    # 1. Print PRE-call cost estimate so the bill is visible before the API call.
+    unit_cost_pre(phase="tts", provider="elevenlabs", unit_label="tts_chars", units=chars_used)
+
+    # 2. Daily USD cost cap check (estimate via published per-character rate).
     from reel_gen.llm.cost import cost_for_units
     est = cost_for_units(provider="elevenlabs", unit_label="tts_chars", units=chars_used)
     check_cap(prospective_cost_usd=est)
+
+    # 3. Monthly char quota check + status line on every call.
+    check_char_quota(prospective_chars=chars_used)
+    print(quota_status_line())
 
     url = (
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
@@ -3207,6 +3452,7 @@ def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionW
         phase="tts", provider="elevenlabs", unit_label="tts_chars", units=chars_used
     )
     add_to_today(cost.cost_usd)
+    add_chars_to_month(chars_used)
     return mp3, words, cost
 ```
 
@@ -3252,6 +3498,8 @@ def _png_bytes() -> bytes:
 
 def test_generate_image_writes_png(tmp_path, monkeypatch):
     monkeypatch.setenv("REPLICATE_API_TOKEN", "r8_test")
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("DAILY_COST_CAP_USD", "5.00")
 
     class FakeFile:
         def read(self) -> bytes:
@@ -3273,7 +3521,12 @@ Expected: ModuleNotFoundError.
 
 ```python
 # backend/src/reel_gen/media/replicate_flux.py
-"""Replicate Flux Schnell client with NSFW retry-with-rewrite + size guard."""
+"""Replicate Flux Schnell client with NSFW retry-with-rewrite + cost transparency.
+
+Cost transparency: prints PRE (estimate $0.003/image) and POST (actual)
+on every call. NSFW retry counts as a second billed call; both PRE/POST
+lines fire so the bill is fully visible.
+"""
 from __future__ import annotations
 
 import os
@@ -3283,7 +3536,7 @@ from pathlib import Path
 import httpx
 import replicate
 
-from reel_gen.llm.cost import unit_cost_post
+from reel_gen.llm.cost import unit_cost_post, unit_cost_pre
 from reel_gen.llm.cost_cap import add_to_today, check_cap
 from reel_gen.state import CostEntry
 
@@ -3306,7 +3559,11 @@ def generate_image(
 ) -> tuple[Path, CostEntry]:
     os.environ["REPLICATE_API_TOKEN"] = os.environ["REPLICATE_API_TOKEN"]
 
-    # Pre-cap check ($0.003 per image).
+    # 1. Print PRE-call cost estimate so the bill is visible BEFORE the API call.
+    #    Flux Schnell at 9:16 is $0.003 per image (see UNIT_RATES in llm/cost.py).
+    unit_cost_pre(phase="image", provider="replicate", unit_label="images", units=1)
+
+    # 2. Daily USD cost cap check.
     from reel_gen.llm.cost import cost_for_units
     est = cost_for_units(provider="replicate", unit_label="images", units=1)
     check_cap(prospective_cost_usd=est)
@@ -3320,12 +3577,18 @@ def generate_image(
             },
         )
 
+    retried = False
     try:
         out = call(prompt)
     except Exception as e:
         msg = str(e).lower()
         if retry_on_nsfw and ("nsfw" in msg or "moderation" in msg or "safety" in msg):
+            # Retry counts as a second billed call.
+            print("[INFO] Replicate flagged prompt; retrying with rewrite (this is a second billable call).")
+            unit_cost_pre(phase="image_retry", provider="replicate", unit_label="images", units=1)
+            check_cap(prospective_cost_usd=est)
             out = call(_safer_prompt(prompt))
+            retried = True
         else:
             raise
 
@@ -3336,7 +3599,9 @@ def generate_image(
     p = out_dir / f"scene_{scene_idx:02d}.png"
     p.write_bytes(png_bytes)
 
-    cost = unit_cost_post(phase="image", provider="replicate", unit_label="images", units=1)
+    # 3. POST: log + return ledger entry. If we retried, units=2 so the bill is honest.
+    units = 2 if retried else 1
+    cost = unit_cost_post(phase="image", provider="replicate", unit_label="images", units=units)
     add_to_today(cost.cost_usd)
     return p, cost
 ```
