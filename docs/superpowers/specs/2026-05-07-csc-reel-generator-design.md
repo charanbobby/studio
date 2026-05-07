@@ -28,7 +28,9 @@ Build a tool that generates a vertical Instagram-Reel-format MP4 (1080x1920, ~5-
 
 ## 2. Architecture
 
-Two services orchestrated via Docker Compose: a FastAPI backend wrapping a LangGraph state machine, and a Next.js frontend for prompt input + live progress + result viewing. The LangGraph pipeline has four discrete nodes, each with one responsibility. Every paid API call wrapped in cost-print pre/post helpers per global CLAUDE.md. Tracing via Langfuse Cloud free tier. Filesystem-only state under `runs/<run_id>/`; no database.
+Two services orchestrated via Docker Compose: a FastAPI backend wrapping a LangGraph state machine, and a Next.js frontend for prompt input + plan review + live progress + result viewing. The LangGraph pipeline has four discrete nodes plus a **mandatory human-approval gate** between Plan and Execute. Every paid API call wrapped in cost-print pre/post helpers per global CLAUDE.md. Tracing via Langfuse Cloud free tier. Filesystem-only state under `runs/<run_id>/`; no database.
+
+The human-approval gate is non-negotiable for this build: after the Plan node writes `plan.json`, the LangGraph state machine pauses. The frontend renders the plan scene-by-scene (hook, voiceover, per-scene visual prompts, motion, music mood) and the user clicks Approve or Reject. Only on Approve does Execute fire any paid API. This is the strongest possible application of SKILL.md Phase 6c (human-in-the-loop) and the assessable answer to AI Questionnaire Q7 (parts kept human-only). It also bounds cost: a wrong plan never burns image-gen / TTS / music-gen spend.
 
 ```
   Browser                                                                     
@@ -55,6 +57,14 @@ Two services orchestrated via Docker Compose: a FastAPI backend wrapping a LangG
   │   │  PLAN    │ Claude Sonnet via OpenRouter (cached system+schema)  │     
   │   │  node    │ → ScriptPlan, writes runs/<id>/plan.json             │     
   │   └────┬─────┘                                                      │     
+  │        ▼                                                            │     
+  │   ┌──────────────────────────────────────────────────┐              │     
+  │   │  HUMAN APPROVAL GATE (MANDATORY)                 │              │     
+  │   │  Frontend renders plan scene-by-scene.           │              │     
+  │   │  User clicks Approve / Reject.                   │              │     
+  │   │  No paid Execute API call fires before Approve.  │              │     
+  │   └────┬─────────────────────────────────────────────┘              │     
+  │        │ approve_plan signal                                        │     
   │        ▼                                                            │     
   │   ┌─────────────────────────────────────────────────┐               │     
   │   │  EXECUTE (parallel fan-out)                     │               │     
@@ -152,6 +162,7 @@ Per node:
 
 - **Extract:** If brief is too vague, mark `intent.notes = "AMBIGUOUS_BRIEF"` and proceed with conservative defaults. Never fabricate intent (per global CLAUDE.md absence-handling rule).
 - **Plan:** Pydantic validation on Claude output. Up to 2 retries with validation errors fed back. On third failure, fall back to a deterministic plan template so the pipeline still ships a reel.
+- **Human-approval gate:** waits indefinitely. The frontend keeps the SSE channel alive; the run state is persisted to disk so a browser refresh resumes the same view. On Reject, the run terminates with status `rejected` and the cost ledger shows only Extract + Plan cost (no Execute spend). Cost cap is checked on the Approve action just before Execute fires, so even an Approve that pushes over the daily cap aborts cleanly.
 - **TTS:** Retry with exponential backoff (max 3). Hard failure aborts the run; voiceover is the spine of the reel and cannot be skipped.
 - **Image gen:** Per-scene retry up to 3. NSFW filter rejection triggers one retry with a deterministically rewritten safer prompt. Final failure on a single scene falls back to a solid-color frame with the scene's voiceover text overlaid; the reel still ships.
 - **Music:** Best-effort. If gen fails, set `music_path = None` and log an error; Stitch handles silence cleanly.
@@ -285,7 +296,7 @@ services:
 | `GET` | `/api/runs` | List past runs with thumbnails (latest first). |
 | `GET` | `/api/runs/{id}` | Run status snapshot: phase, plan, cost ledger, error list, reel URL when ready. |
 | `GET` | `/api/runs/{id}/stream` | Server-Sent Events: per-node start/end, cost entries, errors. Frontend subscribes here while the run is live. |
-| `POST` | `/api/runs/{id}/approve-plan` | Stretch goal: when `review_plan_first=True`, this is the gate Execute waits for. |
+| `POST` | `/api/runs/{id}/approve-plan` | **Required.** Body: `{approved: true | false, edits?: ScriptPlan}`. Execute waits for this signal before any paid API call. If `approved: false`, the run terminates with a Rejected status; if `edits` are present, they replace the plan before Execute fires. |
 | `GET` | `/api/runs/{id}/reel.mp4` | The generated MP4. Streamed from disk. |
 | `GET` | `/api/runs/{id}/plan.json` | The auditable plan artifact. |
 | `GET` | `/healthz` | Liveness probe for Docker. |
@@ -295,7 +306,7 @@ services:
 | Route | Components | Purpose |
 |-------|-----------|---------|
 | `/` | `PromptForm` | New run: prompt textarea, duration slider (5-90s), music toggle (default off, auto-on at >=30s), voice select (defaults to user's clone), Generate button. On submit POSTs `/api/runs` and routes to `/runs/{id}`. |
-| `/runs/{id}` | `ProgressTimeline`, `PlanPreview`, `CostLedger`, `ReelPlayer` | Subscribes to SSE. Shows Extract/Plan/Execute/Stitch as a vertical timeline with per-node status. When Plan completes, `PlanPreview` renders `plan.json` (hook, scene-by-scene shots, voiceover script). When Stitch completes, `ReelPlayer` shows the MP4 with a download link. `CostLedger` streams entries inline. Footer link to the Langfuse trace. |
+| `/runs/{id}` | `ProgressTimeline`, `PlanReviewPanel`, `CostLedger`, `ReelPlayer` | Subscribes to SSE. Shows Extract / Plan / **Approval Gate** / Execute / Stitch as a vertical timeline with per-node status. When Plan completes, `PlanReviewPanel` renders the plan scene-by-scene with hook, voiceover script, per-scene visual prompts, motion type, music mood, and Approve / Reject buttons. The pipeline is paused at this point; nothing in Execute has fired. On Approve (with optional inline edits), POSTs `/api/runs/{id}/approve-plan` and the timeline resumes. On Reject, the run terminates with the cost incurred so far (only Extract + Plan: ~$0.01-0.02). When Stitch completes, `ReelPlayer` shows the MP4 with a download link. `CostLedger` streams entries inline. Footer link to the Langfuse trace. |
 | `/runs` | `RunCard[]` | History grid: each card shows the prompt, thumbnail (last frame of reel), cost, date. Click to open `/runs/{id}`. |
 
 UI is deliberately spartan: Tailwind defaults, no design system, clean typography. Goal is professional and functional in the walkthrough video, not portfolio-stunning. Branded as **Sri Studio** across the page header, favicon, and `<title>` tag. (Stretch polish if time permits.)
@@ -321,7 +332,7 @@ Per SKILL.md Phase 9.
 | LangGraph over n8n | 2:00 | Walk through ADR-001; explicit about respect for n8n in its lane |
 | Architecture | 2:30 | 4-node decomposition, state schema, plan.json as auditable artifact, FastAPI wrapper + SSE per-node events |
 | Fail-fast probes | 1:30 | Show probe scripts, run probe 10 live |
-| Live demo | 2:30 | Open the live Sri Studio UI at studio.sshub.dev, type the brief, click Generate, narrate the live SSE stream as Extract -> Plan -> Execute -> Stitch nodes complete. Show plan.json preview rendering inline. Final video plays in the browser. Then play the 90s version recorded earlier. |
+| Live demo | 3:00 | Open the live Sri Studio UI at studio.sshub.dev, type the brief, click Generate. Narrate the live SSE stream: Extract finishes, Plan finishes, **the pipeline pauses on the human-approval gate**. Walk through the plan scene-by-scene on screen. Click Approve. Execute fan-out runs in parallel; Stitch finishes; final video plays in the browser. Then play the 90s version recorded earlier. **Show one Reject in a second run** so the panel sees the cost cap working: $0.02 spent on a rejected plan vs the wasted $0.30 of running through Execute on a bad plan. |
 | Observability + cost | 1:00 | Langfuse trace, cost.json, daily cost cap, $250/month for 1000 reels math |
 | Failure handling | 1:30 | Pydantic validation, NSFW retry, music degrade, scene fallback, cost-cap abort |
 | Production deployment | 1:00 | Hetzner + Docker Compose + nginx + Let's Encrypt + basic auth at studio.sshub.dev. SKILL.md Phase 9 in production for this build, not just prior projects. |
@@ -340,7 +351,7 @@ Recording rule: voice in the walkthrough = the same cloned voice in the reels. C
 | Q4 most complex production | Sri Studio deployed at studio.sshub.dev via Hetzner + nginx + Let's Encrypt + basic auth + cost cap (this build is itself a production deployment); 2nd Find Evil DFIR pipeline |
 | Q5 manual process translation | Fair Play document-to-DB pipeline |
 | Q6 handling pushback | This build's n8n -> LangGraph reasoning; cite ADR-001 |
-| Q7 kept human-only | plan.json review point, voice clone IDs user-supplied, deterministic NSFW retry |
+| Q7 kept human-only | **Mandatory human-approval gate between Plan and Execute: every reel waits on a scene-by-scene human review before any paid Execute API call fires.** Voice clone IDs user-supplied (not auto-generated). NSFW retry deterministic (not autonomous). Cost cap aborts before spend, not after. |
 | Q8 preventing AI errors | Pydantic validation, retries, graceful degradation, fail-fast probes, cost tracing, dual-channel evidence boundary |
 | Q9 staying current | Direct honest answer |
 
@@ -350,7 +361,7 @@ The build is the proof-of-work for 5 of the 9 questions. The assessment is desig
 
 - Day 1 morning: probe matrix (probes 01-06, 09, 10). Decision records 001-012 backfilled (011 covers the Sri Studio name + studio.sshub.dev deployment; 012 covers basic auth + daily cost cap).
 - Day 1 afternoon: Extract + Plan nodes + plan.json artifact. FastAPI `api.py` skeleton with `POST /api/runs` + SSE endpoint stub. Cost-cap helper. Build journal entries.
-- Day 2 morning: Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3. Wire LangGraph node events to SSE.
+- Day 2 morning: Human-approval gate wiring (LangGraph interrupt + `POST /api/runs/{id}/approve-plan` + SSE `awaiting_approval` event). Execute fan-out (TTS + image gen + captions). Notebook validation per SKILL.md Phase 3. Wire LangGraph node events to SSE.
 - Day 2 afternoon: Stitch node + ffmpeg recipes. End-to-end run at 5s via API. Then 90s.
 - Day 3 morning: Next.js frontend (`/`, `/runs/[id]`, components). Tailwind styling. Sri Studio branding (header, favicon, title). Smoke test through the browser locally.
 - Day 3 afternoon: Deploy to studio.sshub.dev via existing Hetzner pattern. nginx + Let's Encrypt + basic auth. Smoke test the live URL. Diagrams.html. Walkthrough script polish.
@@ -364,10 +375,10 @@ The build is the proof-of-work for 5 of the 9 questions. The assessment is desig
 ## 12. Open items / stretch goals
 
 - IG posting via Graph API (deferred; not in scope)
-- Plan-review-first toggle (Phase 6c human-in-the-loop checkpoint; ship core flow first, add if time)
+- Inline scene editing in the approval panel (v1 ships with Approve / Reject only; editing scenes pre-Execute is a v2 enhancement)
 - Music gen at >=30s reels (probe 08, deferred)
 - Multi-brand presets (post-assessment, personal-use feature)
-- Auth and multi-user support (single-user local tool by design)
+- User accounts beyond the basic-auth pair (single-user-plus-assessor by design)
 - Run history search / filtering (basic list only at submission)
 
 ## 13. References
