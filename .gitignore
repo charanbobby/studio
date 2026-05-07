@@ -1,0 +1,54 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+*.egg-info/
+
+# uv
+.uv-cache/
+
+# Run artifacts (generated reels, intermediate assets, traces)
+runs/
+out/
+experiments/out/
+experiments/cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Probes / fail-fast markers (already gitignored by .probes/.gitignore but belt-and-suspenders)
+.probes/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Personal application materials (not part of the shipping product)
+AI_Solutions_Engineer_Assessment_Packet.pdf
+Application*/
+
+# Notebook checkpoints
+.ipynb_checkpoints/

@@ -1,0 +1,13 @@
+# Fail-fast enforce list. Rename to .failfast.list at repo root and edit.
+# One glob pattern per line, matched against repo-relative paths.
+# Lines starting with # and blank lines are ignored.
+#
+# Examples:
+#   src/**/*.py                           # all Python under src
+#   pipeline/*.py                         # only top-level Python in pipeline
+#   migrations/*.sql                      # SQL migrations
+#   config/runtime.json                   # specific config file
+#
+# Patterns use bash [[ == ]] glob matching. ** is enabled (globstar).
+
+# Add your project-specific paths here:
