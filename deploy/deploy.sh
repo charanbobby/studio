@@ -34,14 +34,15 @@ SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=accept-new)
 echo ">>> Syncing repo to ${DEPLOY_USER}@${DEPLOY_HOST}:${APP_DIR}"
 rsync -az --delete \
   --rsh "ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new" \
-  --exclude '.git' \
-  --exclude 'runs' \
-  --exclude 'frontend/node_modules' \
-  --exclude 'frontend/.next' \
-  --exclude 'backend/experiments/out' \
-  --exclude 'backend/__pycache__' \
-  --exclude '.probes' \
-  --exclude '_resume.md' \
+  --exclude './.git' \
+  --exclude './runs' \
+  --exclude './frontend/node_modules' \
+  --exclude './frontend/.next' \
+  --exclude './frontend/tsconfig.tsbuildinfo' \
+  --exclude './backend/experiments/out' \
+  --exclude './backend/__pycache__' \
+  --exclude './.probes' \
+  --exclude './_resume.md' \
   ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${APP_DIR}/"
 
 echo ">>> docker compose up --build (host: ${DEPLOY_HOST})"

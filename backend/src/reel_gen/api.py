@@ -105,6 +105,16 @@ async def get_run(run_id: str) -> dict:
     snap = await REGISTRY.snapshot(run_id)
     if not snap:
         raise HTTPException(404, "run not found")
+    # Merge plan from disk so the UI can render PlanReviewPanel even when
+    # the registry snapshot doesn't carry it (the LangGraph plan_node writes
+    # plan.json, but doesn't update the in-memory registry).
+    if "plan" not in snap or not snap.get("plan"):
+        plan_path = _runs_dir() / run_id / "plan.json"
+        if plan_path.exists():
+            try:
+                snap["plan"] = json.loads(plan_path.read_text())
+            except Exception:
+                pass
     return snap
 
 
