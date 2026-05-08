@@ -7,44 +7,30 @@ services:
       - ./backend/src:/app/src
       - ./backend/experiments:/app/experiments
       - ./backend/tests:/app/tests
-    ports: ["8000:8000"]
+    # Bind to localhost only; the host's system nginx handles routing
+    # studio.sshub.dev / api/* to this port on the production host.
+    # On a dev machine, http://localhost:8000 still works for direct API hits.
+    ports: ["127.0.0.1:8000:8000"]
     environment:
       PYTHONUNBUFFERED: "1"
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Empty NEXT_PUBLIC_API_URL means lib/api.ts uses relative URLs
+        # (/api/...). Browser resolves to current origin, host nginx routes
+        # /api/* to the backend container. Works in both prod (studio.sshub.dev)
+        # and local dev (where curl-to-localhost:3000 is for serving the UI;
+        # API calls go through Next.js relative URLs proxied by next.config.js
+        # rewrites if configured, or through nginx in prod).
+        NEXT_PUBLIC_API_URL: ""
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ""
       NODE_ENV: production
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
-
-  nginx:
-    image: nginx:1.27-alpine
-    profiles: ["prod"]
-    depends_on: [backend, frontend]
-    ports: ["80:80", "443:443"]
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-    restart: unless-stopped
-
-  certbot:
-    image: certbot/certbot
-    profiles: ["prod"]
-    volumes:
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-    entrypoint: /bin/sh -c
-    command: |
-      "trap exit TERM;
-       while :; do
-         certbot renew --webroot -w /var/www/certbot --quiet;
-         sleep 12h & wait $${!};
-       done"
