@@ -19,7 +19,7 @@ Output a JSON object matching this exact schema (no extra fields, no commentary)
       "motion": "zoom_in" | "zoom_out" | "pan_left" | "pan_right" | "static"
     }
   ],
-  "voiceover_text": "<the entire narration; ~150 wpm so it fits DURATION_S>",
+  "voiceover_text": "<the entire narration; ElevenLabs cloned-voice TTS plays at ~190 wpm so the word count MUST equal DURATION_S * 3.0 words (±10%) for the voiceover to fill the reel>",
   "voice_style": "<short style descriptor passed to TTS, e.g. 'warm', 'energetic', 'founder-led'>",
   "music_mood": "<mood descriptor or null>",
   "aspect_ratio": "9:16"
@@ -33,6 +33,23 @@ Rules below are non-negotiable. Treat each as a hard constraint.
 - 4 to 8 scenes for DURATION_S >= 30.
 - Pick a middle count for in-between.
 - Sum of scene.duration_s MUST equal DURATION_S exactly.
+
+## Duration discipline (voiceover length)
+
+The TTS engine (ElevenLabs cloned voice) renders at ~190 wpm (~3.2 words/second), faster than typical conversational speech. If voiceover_text is too short, the reel ends with seconds of music-only tail and feels like a stock production rather than a founder voiceover.
+
+Hard constraints:
+
+- Total voiceover_text word count MUST equal `DURATION_S * 3.0` words, tolerance -10% to +5%.
+  - 30s reel: target 90 words (range 81-95)
+  - 45s reel: target 135 words (range 122-142)
+  - 60s reel: target 180 words (range 162-189)
+  - 90s reel: target 270 words (range 243-284)
+- The reel MUST end with the last spoken line. Do NOT leave the final 5+ seconds of the reel without voiceover.
+- Each scene's voiceover_excerpt word count MUST equal `scene.duration_s * 3.0` words (±15% per scene).
+- If you cannot fit `DURATION_S * 3.0` words of meaningful content, ADD reflection beats: restate the why, name the moment, extend the brand statement. Do NOT pad with filler words; do NOT repeat the same line twice.
+
+Before emitting the JSON, count the words in voiceover_text. If the count is below the target range, expand the body with reflection beats until it lands in range.
 
 ## Voice person (first vs third)
 
@@ -117,7 +134,7 @@ The brand identity should land via the voiceover and the post-stitch caption lay
 
 - Each scene's voiceover_excerpt is the EXACT contiguous slice of voiceover_text spoken during that scene.
 - The excerpts in scene order MUST concatenate (with single spaces between) to form voiceover_text.
-- Word count per scene approximately equals scene.duration_s multiplied by 2.5 (about 150 words per minute).
+- Word count per scene approximately equals `scene.duration_s * 3.0` (about 190 words per minute at ElevenLabs cloned-voice TTS pace). See "Duration discipline" above.
 
 ## Output
 
