@@ -1,0 +1,26 @@
+[
+  {
+    "phase": "extract",
+    "provider": "openrouter",
+    "model": "anthropic/claude-haiku-4-5",
+    "input_tokens": 231,
+    "output_tokens": 65,
+    "cached_input_tokens": 0,
+    "units": null,
+    "unit_label": null,
+    "cost_usd": 0.000445,
+    "timestamp": "2026-05-08T00:57:56.727781+00:00"
+  },
+  {
+    "phase": "plan",
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4-6",
+    "input_tokens": 469,
+    "output_tokens": 264,
+    "cached_input_tokens": 0,
+    "units": null,
+    "unit_label": null,
+    "cost_usd": 0.005367,
+    "timestamp": "2026-05-08T00:58:01.654104+00:00"
+  }
+]

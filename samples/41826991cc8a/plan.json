@@ -1,0 +1,16 @@
+{
+  "hook": "Step inside the coziest autumn coffee shop ever",
+  "scenes": [
+    {
+      "scene_idx": 0,
+      "duration_s": 5.0,
+      "visual_prompt": "A warm and inviting autumn coffee shop interior, vertical 9:16 cinematic composition, close-up of a ceramic mug with intricate leaf-shaped latte art resting on a rustic wooden table, golden amber bokeh lights glowing softly in the background, fallen orange and red maple leaves scattered beside the mug, steam rising gently from the coffee, moody warm candlelight tones, shallow depth of field, cozy hygge atmosphere, golden hour color grading",
+      "voiceover_excerpt": "Wrap your hands around something warm — autumn is best sipped slowly.",
+      "motion": "zoom_in"
+    }
+  ],
+  "voiceover_text": "Wrap your hands around something warm — autumn is best sipped slowly.",
+  "voice_style": "warm",
+  "music_mood": null,
+  "aspect_ratio": "9:16"
+}

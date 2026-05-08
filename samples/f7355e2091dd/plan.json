@@ -1,0 +1,23 @@
+{
+  "hook": "Your voice. Your reels. Powered by AI.",
+  "scenes": [
+    {
+      "scene_idx": 0,
+      "duration_s": 2.5,
+      "visual_prompt": "A close-up of a young content creator speaking confidently into a smartphone mounted on a tripod, warm studio lighting, bokeh background with subtle glowing AI particle effects, vertical 9:16 composition, cinematic color grade, vibrant energy",
+      "voiceover_excerpt": "Your voice. Your reels.",
+      "motion": "zoom_in"
+    },
+    {
+      "scene_idx": 1,
+      "duration_s": 2.5,
+      "visual_prompt": "A sleek futuristic interface displaying a vertical reel being auto-generated with waveform animations and glowing neural network visuals, deep dark background with neon accent colors, vertical 9:16 composition, cinematic high-contrast lighting, innovative tech aesthetic",
+      "voiceover_excerpt": "Powered by AI. Welcome to Sri Studio.",
+      "motion": "pan_right"
+    }
+  ],
+  "voiceover_text": "Your voice. Your reels. Powered by AI. Welcome to Sri Studio.",
+  "voice_style": "energetic",
+  "music_mood": null,
+  "aspect_ratio": "9:16"
+}

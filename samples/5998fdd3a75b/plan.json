@@ -1,0 +1,23 @@
+{
+  "hook": "Spring into cooking with stunning new copper cookware!",
+  "scenes": [
+    {
+      "scene_idx": 0,
+      "duration_s": 2.5,
+      "visual_prompt": "Close-up shot of gleaming polished copper pots and pans arranged on a rustic wooden kitchen countertop, warm golden morning light streaming in from the side, vertical 9:16 aspect ratio, cinematic shallow depth of field, rich warm tones, lush green spring herbs in the soft background bokeh",
+      "voiceover_excerpt": "Spring is here, and so is our stunning new copper cookware collection.",
+      "motion": "zoom_in"
+    },
+    {
+      "scene_idx": 1,
+      "duration_s": 2.5,
+      "visual_prompt": "Elegant kitchen lifestyle scene showing a home cook's hands lifting a gleaming copper sauté pan off a modern gas range, steam rising beautifully, vibrant spring vegetables visible in the pan, vertical 9:16 aspect ratio, cinematic warm ambient lighting, rich copper and cream tones throughout",
+      "voiceover_excerpt": "Shop Sur La Table's spring sale and elevate every meal you make.",
+      "motion": "pan_right"
+    }
+  ],
+  "voiceover_text": "Spring is here, and so is our stunning new copper cookware collection. Shop Sur La Table's spring sale and elevate every meal you make.",
+  "voice_style": "energetic",
+  "music_mood": null,
+  "aspect_ratio": "9:16"
+}

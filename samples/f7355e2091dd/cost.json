@@ -1,0 +1,62 @@
+[
+  {
+    "phase": "extract",
+    "provider": "openrouter",
+    "model": "anthropic/claude-haiku-4-5",
+    "input_tokens": 238,
+    "output_tokens": 79,
+    "cached_input_tokens": 0,
+    "units": null,
+    "unit_label": null,
+    "cost_usd": 0.000506,
+    "timestamp": "2026-05-08T00:55:22.862987+00:00"
+  },
+  {
+    "phase": "plan",
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4-6",
+    "input_tokens": 482,
+    "output_tokens": 331,
+    "cached_input_tokens": 0,
+    "units": null,
+    "unit_label": null,
+    "cost_usd": 0.006411,
+    "timestamp": "2026-05-08T00:55:29.009832+00:00"
+  },
+  {
+    "phase": "tts",
+    "provider": "elevenlabs",
+    "model": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cached_input_tokens": null,
+    "units": 61.0,
+    "unit_label": "tts_chars",
+    "cost_usd": 0.0183,
+    "timestamp": "2026-05-08T00:56:11.090024+00:00"
+  },
+  {
+    "phase": "image",
+    "provider": "replicate",
+    "model": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cached_input_tokens": null,
+    "units": 1.0,
+    "unit_label": "images",
+    "cost_usd": 0.003,
+    "timestamp": "2026-05-08T00:56:11.107327+00:00"
+  },
+  {
+    "phase": "image",
+    "provider": "replicate",
+    "model": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cached_input_tokens": null,
+    "units": 1.0,
+    "unit_label": "images",
+    "cost_usd": 0.003,
+    "timestamp": "2026-05-08T00:56:23.390301+00:00"
+  }
+]
