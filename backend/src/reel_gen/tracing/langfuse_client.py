@@ -57,30 +57,64 @@ def get_langfuse() -> Any:
     return _singleton
 
 
+def _serialize(value: Any) -> Any:
+    """Best-effort JSON-friendly view of a value for Langfuse capture.
+
+    Pydantic v2 models -> ``model_dump(mode="json")`` so nested datetimes,
+    UUIDs, and Pydantic submodels become JSON-safe. Lists / tuples recurse.
+    Anything that fails serialization falls back to ``repr(value)`` so a
+    weird object never breaks the trace.
+    """
+    try:
+        # Pydantic v2 BaseModel.
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, (list, tuple)):
+            return [_serialize(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _serialize(v) for k, v in value.items()}
+        # Primitives pass through.
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return repr(value)
+    except Exception:
+        return repr(value)
+
+
 def with_span(name: str) -> Callable[[_F], _F]:
     """Decorator wrapping a sync callable in a Langfuse span.
 
     Uses the v4 ``start_as_current_observation`` context manager. Captures the
-    return value as ``output`` and any exception as a span at level ERROR before
-    re-raising. The Langfuse client is resolved lazily so applying the decorator
-    at import time does not require credentials.
+    full call inputs (args + kwargs, serialized as JSON-safe dicts via
+    ``_serialize``) and the full return value as ``output``. For node helpers
+    where the input is a Pydantic ``ReelState``, this surfaces the actual
+    state snapshot (brief, intent, plan, scenes, etc.) in the dashboard rather
+    than the previous ``{"args_len": ...}`` placeholder.
+
+    Exceptions are captured at level ERROR before re-raising. The Langfuse
+    client is resolved lazily so applying the decorator at import time does
+    not require credentials.
     """
 
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             lf = get_langfuse()
+            input_payload = {
+                "args": [_serialize(a) for a in args],
+                "kwargs": {k: _serialize(v) for k, v in kwargs.items()},
+            }
             with lf.start_as_current_observation(
                 name=name,
                 as_type="span",
-                input={"args": args, "kwargs": kwargs},
+                input=input_payload,
             ) as span:
                 try:
                     result = func(*args, **kwargs)
                 except Exception as exc:
                     span.update(level="ERROR", status_message=repr(exc))
                     raise
-                span.update(output=result)
+                span.update(output=_serialize(result))
                 return result
 
         return wrapped  # type: ignore[return-value]

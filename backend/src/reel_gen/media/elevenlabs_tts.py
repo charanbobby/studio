@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import base64
 import os
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterator
 
 import httpx
 
@@ -37,6 +39,36 @@ def _chars_to_words(
     return words
 
 
+@contextmanager
+def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[Any]:
+    """Yield a Langfuse span handle for paid media calls, or None if unavailable.
+
+    Mirrors the helper in ``llm.openrouter`` so test environments without
+    Langfuse credentials degrade to a no-op rather than failing the call.
+    """
+    try:
+        from langfuse import get_client  # local import (optional dep)
+
+        lf = get_client()
+    except Exception:
+        yield None
+        return
+
+    try:
+        cm = lf.start_as_current_observation(
+            name=name,
+            as_type="span",
+            input=input_payload,
+            metadata=metadata,
+        )
+    except Exception:
+        yield None
+        return
+
+    with cm as span:
+        yield span
+
+
 def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionWord], CostEntry]:
     voice_id = os.environ["ELEVENLABS_VOICE_ID"]
     api_key = os.environ["ELEVENLABS_API_KEY"]
@@ -57,23 +89,55 @@ def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionW
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
     }
     headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
-    r = httpx.post(url, json=body, headers=headers, timeout=120)
-    r.raise_for_status()
-    payload = r.json()
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    mp3 = out_dir / "voiceover.mp3"
-    mp3.write_bytes(base64.b64decode(payload["audio_base64"]))
+    span_input = {
+        "text": text,
+        "model_id": body["model_id"],
+        "voice_settings": body["voice_settings"],
+    }
+    span_metadata = {
+        "provider": "elevenlabs",
+        "model": body["model_id"],
+        "voice_id": voice_id,
+        "chars": chars_used,
+        "unit_label": "tts_chars",
+    }
 
-    align = payload.get("alignment") or {}
-    words = _chars_to_words(
-        align.get("characters", []),
-        align.get("character_start_times_seconds", []),
-        align.get("character_end_times_seconds", []),
-    )
+    with _media_span(
+        name="elevenlabs_tts", input_payload=span_input, metadata=span_metadata
+    ) as span:
+        r = httpx.post(url, json=body, headers=headers, timeout=120)
+        r.raise_for_status()
+        payload = r.json()
 
-    cost = unit_cost_post(
-        phase="tts", provider="elevenlabs", unit_label="tts_chars", units=chars_used
-    )
-    add_to_today(cost.cost_usd)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mp3 = out_dir / "voiceover.mp3"
+        mp3.write_bytes(base64.b64decode(payload["audio_base64"]))
+
+        align = payload.get("alignment") or {}
+        words = _chars_to_words(
+            align.get("characters", []),
+            align.get("character_start_times_seconds", []),
+            align.get("character_end_times_seconds", []),
+        )
+
+        cost = unit_cost_post(
+            phase="tts", provider="elevenlabs", unit_label="tts_chars", units=chars_used
+        )
+        add_to_today(cost.cost_usd)
+
+        if span is not None:
+            try:
+                span.update(
+                    output={
+                        "mp3_path": str(mp3),
+                        "mp3_bytes": mp3.stat().st_size,
+                        "n_words": len(words),
+                        "duration_s": (words[-1].end_s if words else 0.0),
+                    },
+                    metadata={**span_metadata, "cost_usd": float(cost.cost_usd)},
+                )
+            except Exception:
+                pass
+
     return mp3, words, cost
