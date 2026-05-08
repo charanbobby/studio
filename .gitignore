@@ -45,6 +45,16 @@ docker-compose.override.yml
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+frontend/tsconfig.tsbuildinfo
+
+# Claude Code project settings (local, not part of the product)
+.claude/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+
+# Session-only e2e screenshots
+e2e-success-*.png
 
 # Personal application materials (not part of the shipping product)
 AI_Solutions_Engineer_Assessment_Packet.pdf
