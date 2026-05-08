@@ -71,19 +71,34 @@ async def eval_brand_voice_node(state: ReelState) -> ReelState:
         score_int = int(data.get("score", 5))
         rationale = str(data.get("rationale", ""))[:200]
 
-        # Best-effort Langfuse score: any failure here must not break the
-        # reel completion or persistence below.
+        # Best-effort Langfuse score. Wrap in a tiny span under the run's
+        # session so the score is attached to a trace_id (v4.5.1 will not
+        # surface session-only scores via GET /api/public/scores). Any
+        # failure here must not break the reel completion or persistence.
         try:
-            from langfuse import get_client  # local import (optional dep)
+            from langfuse import get_client, propagate_attributes  # local import
 
             lf = get_client()
-            lf.create_score(
+            with propagate_attributes(
                 session_id=state.run_id,
-                name="eval.brand_voice",
-                value=float(score_int),
-                data_type="NUMERIC",
-                comment=rationale,
-            )
+                tags=["sri-studio", "eval"],
+                metadata={"run_id": state.run_id, "kind": "eval_brand_voice"},
+            ):
+                with lf.start_as_current_observation(
+                    name="eval_brand_voice.score",
+                    as_type="span",
+                    input={"score": score_int, "rationale": rationale},
+                ):
+                    lf.score_current_trace(
+                        name="eval.brand_voice",
+                        value=float(score_int),
+                        data_type="NUMERIC",
+                        comment=rationale,
+                    )
+            try:
+                lf.flush()
+            except Exception:
+                pass
         except Exception:
             pass
 

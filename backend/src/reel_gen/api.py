@@ -62,25 +62,65 @@ def _emit_score(
 ) -> None:
     """Emit a single Langfuse score linked to the run's session.
 
+    The v4.5.1 ``Langfuse.create_score`` signature accepts ``session_id``,
+    ``name``, ``value`` (float | str), ``data_type``, ``comment``, plus an
+    optional ``metadata`` mapping. There is no ``string_value`` kwarg, so we
+    fold the categorical label into ``metadata.rating`` and append a "[label]"
+    prefix to the comment for at-a-glance scanning in the dashboard.
+
+    Implementation note: in v4.5.1, scores created with only ``session_id``
+    (no ``trace_id``) are accepted by the ingest endpoint but do NOT surface
+    via ``GET /api/public/scores?sessionId=...`` because the API only joins
+    scores back to sessions through their attached trace. To make scores
+    visible in the dashboard we wrap the call in a tiny ``feedback_score``
+    observation under ``propagate_attributes(session_id=...)`` so a trace
+    exists with the right session linkage, and use ``score_current_trace``
+    which automatically picks up the active trace_id.
+
     Best-effort: any failure to construct or call the Langfuse client is
-    swallowed so a misconfigured credential or transient network failure
-    cannot break the user-facing approve / feedback flow.
+    swallowed and the client is flushed so scores show up in the Langfuse
+    session before the next user action races ahead. A flush failure is also
+    swallowed.
     """
     try:
-        from langfuse import get_client  # local import (optional dep)
+        from langfuse import get_client, propagate_attributes  # local import
+    except Exception:
+        return
 
+    try:
         lf = get_client()
-        kwargs: dict[str, Any] = {
-            "session_id": session_id,
+        merged_comment = comment
+        metadata: dict[str, Any] = {}
+        if string_value is not None:
+            metadata["rating"] = string_value
+            tag = f"[{string_value}]"
+            merged_comment = f"{tag} {comment}" if comment else tag
+        score_kwargs: dict[str, Any] = {
             "name": name,
             "value": value,
             "data_type": "NUMERIC",
         }
-        if string_value is not None:
-            kwargs["string_value"] = string_value
-        if comment:
-            kwargs["comment"] = comment
-        lf.create_score(**kwargs)
+        if merged_comment:
+            score_kwargs["comment"] = merged_comment
+        if metadata:
+            score_kwargs["metadata"] = metadata
+
+        with propagate_attributes(
+            session_id=session_id,
+            tags=["sri-studio", "feedback"],
+            metadata={"run_id": session_id, "kind": "feedback_score"},
+        ):
+            with lf.start_as_current_observation(
+                name=f"feedback_score.{name}",
+                as_type="span",
+                input={"score_name": name, "value": value, "rating": string_value},
+            ):
+                lf.score_current_trace(**score_kwargs)
+
+        try:
+            lf.flush()
+        except Exception:
+            pass
     except Exception:
         pass
 
