@@ -82,13 +82,18 @@ export function PromptForm() {
 
       {err && <div className="text-red-400 text-sm">{err}</div>}
 
-      <button
-        type="submit"
-        disabled={submitting || !prompt.trim()}
-        className="self-start bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-700 px-5 py-2 rounded font-medium"
-      >
-        {submitting ? "Starting..." : "Generate Reel"}
-      </button>
+      <div className="flex flex-col gap-2 self-start">
+        <button
+          type="submit"
+          disabled={submitting || !prompt.trim()}
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-700 px-5 py-2 rounded font-medium"
+        >
+          {submitting ? "Planning..." : "Plan reel"}
+        </button>
+        <p className="text-xs text-neutral-400 max-w-md">
+          We&apos;ll generate a plan first. You&apos;ll approve it before any paid media is generated.
+        </p>
+      </div>
     </form>
   );
 }

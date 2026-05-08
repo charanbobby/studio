@@ -5,6 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 
+from reel_gen.media.elevenlabs_music import generate_music
 from reel_gen.media.elevenlabs_tts import generate_voiceover
 from reel_gen.media.replicate_flux import generate_image
 from reel_gen.runs import REGISTRY
@@ -39,6 +40,30 @@ async def execute_node(state: ReelState) -> ReelState:
         except Exception as e:
             state.errors.append(NodeError(node="execute_tts", message=str(e), fatal=True))
 
+    async def do_music():
+        if not state.with_music or not state.plan or not state.plan.music_mood:
+            return
+        try:
+            result = await asyncio.to_thread(
+                generate_music,
+                mood=state.plan.music_mood,
+                duration_s=float(state.duration_s),
+                out_dir=run_dir,
+            )
+            if result is not None:
+                mp3, cost = result
+                state.music_path = mp3
+                state.cost_ledger.append(cost)
+                await REGISTRY.publish(state.run_id, {"event": "music_done"})
+            else:
+                state.errors.append(NodeError(
+                    node="execute_music",
+                    message="music API returned no audio (degraded to silent)",
+                    fatal=False,
+                ))
+        except Exception as e:
+            state.errors.append(NodeError(node="execute_music", message=str(e), fatal=False))
+
     async def do_image(scene):
         try:
             p, cost = await asyncio.to_thread(
@@ -63,7 +88,7 @@ async def execute_node(state: ReelState) -> ReelState:
             ))
 
     image_tasks = [do_image(s) for s in state.plan.scenes]
-    await asyncio.gather(do_tts(), *image_tasks)
+    await asyncio.gather(do_tts(), do_music(), *image_tasks)
 
     state.image_paths.sort(key=lambda p: int(p.stem.split("_")[-1]))
 
