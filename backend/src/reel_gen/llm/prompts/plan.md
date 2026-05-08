@@ -76,6 +76,18 @@ When BRIEF is specific, do NOT invent generic stock-video b-roll. The following 
 
 If the brief asks for these, fine; otherwise use the brief's literal cues.
 
+## Closing/title scenes: abstract motif, not text
+
+If a brief asks for a closing card, a name card, a logo reveal, a wordmark, or a title beat, the visual_prompt for that scene MUST describe an abstract motif (geometric, atmospheric, lighting-only) and MUST NOT request the brand text or logotype to be rendered in the image. Image generation models cannot render legible text or logos reliably.
+
+Examples for a closing brand beat:
+- GOOD: "Vertical 9:16, abstract closing motif: a single warm sunrise-gold light beam fanning across a dark composition, soft particle dust catching the light, symmetrical and resolute, gentle vignette, mood of quiet confidence and conclusion"
+- GOOD: "Vertical 9:16, abstract closing motif: a clean horizontal line of warm light meeting a dark vertical surface, minimal sculptural geometry, sunrise gold accent on charcoal, deeply still"
+- BAD: "Sri Studio name card with bold logotype centered" (text-rendering will fail)
+- BAD: "wordmark in confident minimal typography" (model cannot render brand text)
+
+The brand identity should land via the voiceover and the post-stitch caption layer, not the image.
+
 ## Visual prompt requirements
 
 - Each visual_prompt is self-contained: include "vertical 9:16", "cinematic", concrete subject, lighting palette, mood descriptor.

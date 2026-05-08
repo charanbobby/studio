@@ -65,6 +65,10 @@ async def execute_node(state: ReelState) -> ReelState:
             state.errors.append(NodeError(node="execute_music", message=str(e), fatal=False))
 
     async def do_image(scene):
+        # Stagger the start so we don't hit Replicate's 6/min cap with a parallel
+        # burst that triggers cascading 429 retries. 2s per scene index spreads
+        # the first batch across ~14s for a 7-scene reel, well under the cap.
+        await asyncio.sleep(scene.scene_idx * 2.0)
         try:
             p, cost = await asyncio.to_thread(
                 generate_image,
