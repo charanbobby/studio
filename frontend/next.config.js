@@ -2,6 +2,7 @@
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  experimental: { typedRoutes: true },
+  // typedRoutes rejects dynamic router.push paths; not worth the friction.
+  experimental: { typedRoutes: false },
 };
 module.exports = nextConfig;
