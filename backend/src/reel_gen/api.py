@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from reel_gen.runs import REGISTRY
 from reel_gen.tracing.langfuse_client import flush as flush_langfuse
+from reel_gen.tracing.langfuse_client import run_session
 
 app = FastAPI(title="Sri Studio API", version="0.1.0")
 
@@ -57,8 +58,13 @@ async def _execute_run(run_id: str, prompt: str, duration_s: int, with_music: bo
     await REGISTRY.update(run_id, status="running")
     graph = build_graph()
     try:
-        # LangGraph's async invoke is required because approval_gate + execute + stitch use async.
-        final = await graph.ainvoke(state)
+        # Wrap the entire graph invocation in a Langfuse session so every span
+        # produced by @with_span-decorated node helpers is grouped under the
+        # same run_id session in the dashboard. propagate_attributes is the
+        # v4.5.1 OTel-baggage mechanism (mirrors the Find Evil pipeline pattern).
+        with run_session(run_id=run_id):
+            # LangGraph's async invoke is required because approval_gate + execute + stitch use async.
+            final = await graph.ainvoke(state)
         final_state = ReelState.model_validate(final) if isinstance(final, dict) else final
         run_dir = _runs_dir() / run_id
         run_dir.mkdir(parents=True, exist_ok=True)

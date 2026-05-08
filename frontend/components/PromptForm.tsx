@@ -33,7 +33,13 @@ export function PromptForm() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4 max-w-2xl">
-      <SamplePrompts onPick={(p) => setPrompt(p)} />
+      <SamplePrompts
+        onPick={(pick) => {
+          setPrompt(pick.prompt);
+          setDuration(pick.duration_s);
+          if (pick.duration_s >= 30) setWithMusic(true);
+        }}
+      />
 
       <label className="flex flex-col gap-2">
         <span className="text-sm font-medium text-neutral-300">Prompt</span>

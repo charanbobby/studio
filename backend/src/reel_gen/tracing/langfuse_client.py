@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import functools
 import os
-from typing import Any, Callable, TypeVar
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator, TypeVar
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -85,6 +86,36 @@ def with_span(name: str) -> Callable[[_F], _F]:
         return wrapped  # type: ignore[return-value]
 
     return decorator
+
+
+@contextmanager
+def run_session(run_id: str) -> Iterator[None]:
+    """Group all spans created inside the ``with`` block under one Langfuse session.
+
+    Uses ``langfuse.propagate_attributes`` (v4 OTel baggage) to attach
+    ``session_id=run_id`` and a ``trace_name`` to every observation started
+    while the context is active. This is the same pattern the Find Evil
+    pipeline uses to make per-run traces show up grouped in the Sessions
+    dashboard. ``langfuse.update_current_trace`` does not exist on the v4.5.1
+    client, so baggage propagation is the supported path.
+
+    The Langfuse import is lazy so this module loads even when credentials
+    are absent. If the import fails (e.g. Langfuse uninstalled in a test
+    environment), this becomes a no-op so the calling code keeps working.
+    """
+    try:
+        from langfuse import propagate_attributes  # local import (optional dep)
+    except Exception:
+        yield
+        return
+
+    with propagate_attributes(
+        session_id=run_id,
+        trace_name=f"run_{run_id}",
+        tags=["sri-studio"],
+        metadata={"run_id": run_id},
+    ):
+        yield
 
 
 def flush() -> None:

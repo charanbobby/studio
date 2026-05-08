@@ -2,7 +2,12 @@
 
 import samples from "@/lib/sample_prompts.json";
 
-export function SamplePrompts({ onPick }: { onPick: (prompt: string) => void }) {
+export interface SamplePick {
+  prompt: string;
+  duration_s: number;
+}
+
+export function SamplePrompts({ onPick }: { onPick: (pick: SamplePick) => void }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs uppercase tracking-wide text-neutral-500">
@@ -13,7 +18,7 @@ export function SamplePrompts({ onPick }: { onPick: (prompt: string) => void }) 
           <button
             key={s.label}
             type="button"
-            onClick={() => onPick(s.prompt)}
+            onClick={() => onPick({ prompt: s.prompt, duration_s: s.duration_s })}
             className="text-xs px-3 py-1.5 rounded-full border border-neutral-700 hover:border-neutral-500 hover:bg-neutral-800/40 transition text-neutral-300"
           >
             {s.label}
