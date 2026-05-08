@@ -29,6 +29,10 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ""
       NODE_ENV: production
+      # Next.js standalone defaults to binding the container hostname; the
+      # in-container HEALTHCHECK hits localhost:3000 and gets connection-refused.
+      # Force bind to 0.0.0.0 so the healthcheck reaches the server.
+      HOSTNAME: "0.0.0.0"
     ports: ["127.0.0.1:3000:3000"]
     depends_on:
       backend:
