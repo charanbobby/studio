@@ -1,3 +1,5 @@
+import type { FieldFeedback } from "@/components/RatingControl";
+
 import type { RunSnapshot, ScriptPlan } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -32,11 +34,12 @@ export async function approvePlan(
   id: string,
   approved: boolean,
   edits: ScriptPlan | null = null,
+  feedback: Record<string, FieldFeedback> | null = null,
 ): Promise<void> {
   const r = await fetch(`${BASE}/api/runs/${id}/approve-plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approved, edits }),
+    body: JSON.stringify({ approved, edits, feedback }),
   });
   if (!r.ok) throw new Error(`approvePlan failed: ${r.status}`);
 }

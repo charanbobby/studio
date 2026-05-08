@@ -2,10 +2,22 @@
 
 import { useMemo, useState } from "react";
 
+import { RatingControl } from "@/components/RatingControl";
+import type { FieldFeedback } from "@/components/RatingControl";
 import { approvePlan } from "@/lib/api";
 import type { Motion, Scene, ScriptPlan } from "@/lib/types";
 
 const MOTIONS: Motion[] = ["zoom_in", "zoom_out", "pan_left", "pan_right", "static"];
+
+const EMPTY_FEEDBACK: FieldFeedback = { rating: null, note: "" };
+
+function feedbackHasAnyRating(fb: Record<string, FieldFeedback>): boolean {
+  for (const key of Object.keys(fb)) {
+    const v = fb[key];
+    if (v && (v.rating !== null || v.note.length > 0)) return true;
+  }
+  return false;
+}
 
 function plansEqual(a: ScriptPlan, b: ScriptPlan): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -22,6 +34,15 @@ export function PlanReviewPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<ScriptPlan>(() => JSON.parse(JSON.stringify(plan)));
+  const [feedback, setFeedback] = useState<Record<string, FieldFeedback>>({});
+
+  function getFeedback(path: string): FieldFeedback {
+    return feedback[path] ?? EMPTY_FEEDBACK;
+  }
+
+  function setFieldFeedback(path: string, next: FieldFeedback) {
+    setFeedback((f) => ({ ...f, [path]: next }));
+  }
 
   // Snapshot the original plan once at mount so the "Edited" badge tracks
   // user edits, not server-side updates that could race in mid-edit.
@@ -44,7 +65,8 @@ export function PlanReviewPanel({
     setBusy(true);
     try {
       const edits = approved && isEdited ? draft : null;
-      await approvePlan(runId, approved, edits);
+      const fb = feedbackHasAnyRating(feedback) ? feedback : null;
+      await approvePlan(runId, approved, edits, fb);
       onResolved();
     } finally {
       setBusy(false);
@@ -76,6 +98,10 @@ export function PlanReviewPanel({
           disabled={busy}
           className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-base focus:outline-none focus:border-amber-500"
         />
+        <RatingControl
+          value={getFeedback("hook")}
+          onChange={(next) => setFieldFeedback("hook", next)}
+        />
       </div>
 
       <div>
@@ -86,6 +112,10 @@ export function PlanReviewPanel({
           disabled={busy}
           rows={4}
           className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm leading-relaxed focus:outline-none focus:border-amber-500"
+        />
+        <RatingControl
+          value={getFeedback("voiceover_text")}
+          onChange={(next) => setFieldFeedback("voiceover_text", next)}
         />
       </div>
 
@@ -131,6 +161,12 @@ export function PlanReviewPanel({
                 rows={2}
                 className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-amber-500"
               />
+              <RatingControl
+                value={getFeedback(`scenes[${s.scene_idx}].voiceover_excerpt`)}
+                onChange={(next) =>
+                  setFieldFeedback(`scenes[${s.scene_idx}].voiceover_excerpt`, next)
+                }
+              />
             </div>
             <div>
               <div className="text-xs uppercase text-neutral-500 mb-1">
@@ -144,6 +180,12 @@ export function PlanReviewPanel({
                 disabled={busy}
                 rows={2}
                 className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs italic text-neutral-300 focus:outline-none focus:border-amber-500"
+              />
+              <RatingControl
+                value={getFeedback(`scenes[${s.scene_idx}].visual_prompt`)}
+                onChange={(next) =>
+                  setFieldFeedback(`scenes[${s.scene_idx}].visual_prompt`, next)
+                }
               />
             </div>
           </div>

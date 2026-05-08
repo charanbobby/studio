@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -30,9 +30,15 @@ class CreateRunResponse(BaseModel):
     run_id: str
 
 
+class FieldFeedbackModel(BaseModel):
+    rating: Literal["good", "partial", "bad"] | None = None
+    note: str = ""
+
+
 class ApproveRequest(BaseModel):
     approved: bool
     edits: dict[str, Any] | None = None
+    feedback: dict[str, FieldFeedbackModel] | None = None
 
 
 @app.get("/healthz")
@@ -214,11 +220,38 @@ async def approve_plan(run_id: str, req: ApproveRequest) -> dict:
     else:
         await REGISTRY.set_approval(run_id, approved=req.approved)
 
+    # Per-field feedback ratings. Auxiliary signal alongside plan_edits.json;
+    # written only if the user touched at least one field. Wrapped in try/except
+    # so a bad payload never breaks the approve flow.
+    feedback_written = False
+    if req.feedback:
+        try:
+            rated = {
+                k: v.model_dump()
+                for k, v in req.feedback.items()
+                if v.rating is not None or (v.note or "").strip() != ""
+            }
+            if rated:
+                run_dir = _runs_dir() / run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                feedback_record = {
+                    "run_id": run_id,
+                    "submitted_at": datetime.now(timezone.utc).isoformat(),
+                    "feedback": rated,
+                }
+                (run_dir / "feedback.json").write_text(
+                    json.dumps(feedback_record, indent=2, default=str)
+                )
+                feedback_written = True
+        except Exception:
+            feedback_written = False
+
     return {
         "run_id": run_id,
         "approved": req.approved,
         "edited": req.edits is not None,
         "fields_changed": fields_changed,
+        "feedback_written": feedback_written,
     }
 
 
