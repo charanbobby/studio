@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createRun } from "@/lib/api";
+import { SamplePrompts } from "@/components/SamplePrompts";
 
 export function PromptForm() {
   const router = useRouter();
@@ -32,6 +33,8 @@ export function PromptForm() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4 max-w-2xl">
+      <SamplePrompts onPick={(p) => setPrompt(p)} />
+
       <label className="flex flex-col gap-2">
         <span className="text-sm font-medium text-neutral-300">Prompt</span>
         <textarea
