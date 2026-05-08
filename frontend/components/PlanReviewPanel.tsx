@@ -30,9 +30,11 @@ export function PlanReviewPanel({
 }: {
   runId: string;
   plan: ScriptPlan;
-  onResolved: () => void;
+  onResolved: (approved: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [draft, setDraft] = useState<ScriptPlan>(() => JSON.parse(JSON.stringify(plan)));
   const [feedback, setFeedback] = useState<Record<string, FieldFeedback>>({});
 
@@ -63,14 +65,33 @@ export function PlanReviewPanel({
 
   async function decide(approved: boolean) {
     setBusy(true);
+    setErrorMsg(null);
+    // Optimistic: hide form contents immediately so the user sees feedback
+    // before the server round-trip + next poll cycle completes.
+    setSubmitted(true);
     try {
       const edits = approved && isEdited ? draft : null;
       const fb = feedbackHasAnyRating(feedback) ? feedback : null;
       await approvePlan(runId, approved, edits, fb);
-      onResolved();
+      onResolved(approved);
+    } catch (e) {
+      // Revert optimistic state so the user can retry.
+      setSubmitted(false);
+      setErrorMsg(e instanceof Error ? e.message : "Failed to submit decision");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (submitted) {
+    return (
+      <div className="border border-amber-700 bg-amber-950/30 rounded p-5 text-sm text-amber-200">
+        <div className="flex items-center gap-3">
+          <span className="inline-block w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
+          <span>Submitting your decision...</span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -192,7 +213,7 @@ export function PlanReviewPanel({
         ))}
       </div>
 
-      <div className="flex gap-3 pt-2">
+      <div className="flex gap-3 pt-2 items-center">
         <button
           onClick={() => decide(true)}
           disabled={busy}
@@ -207,6 +228,9 @@ export function PlanReviewPanel({
         >
           Reject
         </button>
+        {errorMsg && (
+          <span className="text-sm text-red-400">{errorMsg}</span>
+        )}
       </div>
     </div>
   );
