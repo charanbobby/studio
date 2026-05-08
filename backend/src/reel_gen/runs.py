@@ -35,6 +35,43 @@ class RunRegistry:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def rehydrate_from_disk(self) -> int:
+        """Load past runs from runs/<id>/state.json into the in-memory registry.
+
+        Called on FastAPI startup so historical runs survive backend restarts
+        and show up on the Past Runs page. Skips runs already in memory and
+        runs without a readable state.json.
+        """
+        runs_dir = self._runs_dir()
+        if not runs_dir.exists():
+            return 0
+        loaded = 0
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            state_file = run_dir / "state.json"
+            if not state_file.exists():
+                continue
+            try:
+                data = json.loads(state_file.read_text())
+            except Exception:
+                continue
+            rid = data.get("run_id")
+            if not rid or rid in self._runs:
+                continue
+            self._runs[rid] = data
+            self._queues[rid] = []
+            self._history[rid] = []
+            ev = asyncio.Event()
+            # Pre-set approval Event for terminal runs so anything that asks
+            # await_approval on a stale run does not block forever.
+            if data.get("status") in ("completed", "rejected", "error", "awaiting_approval"):
+                ev.set()
+            self._approvals[rid] = ev
+            self._closed[rid] = data.get("status") in ("completed", "rejected", "error")
+            loaded += 1
+        return loaded
+
     async def create(self, *, brief: str, duration_s: int, with_music: bool) -> str:
         rid = uuid.uuid4().hex[:12]
         now = datetime.now(timezone.utc).isoformat()

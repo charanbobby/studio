@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -17,7 +18,22 @@ from reel_gen.runs import REGISTRY
 from reel_gen.tracing.langfuse_client import flush as flush_langfuse
 from reel_gen.tracing.langfuse_client import run_session
 
-app = FastAPI(title="Sri Studio API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Rehydrate past runs from disk so the Past Runs page survives backend
+    # restarts. The in-memory registry would otherwise reset to empty on every
+    # container restart, hiding all historical runs even though they exist on
+    # the runs/ volume.
+    try:
+        loaded = REGISTRY.rehydrate_from_disk()
+        print(f"[startup] rehydrated {loaded} past runs from disk")
+    except Exception as e:
+        print(f"[startup] rehydrate failed: {e}")
+    yield
+
+
+app = FastAPI(title="Sri Studio API", version="0.1.0", lifespan=lifespan)
 
 
 class CreateRunRequest(BaseModel):
