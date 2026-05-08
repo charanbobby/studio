@@ -49,8 +49,12 @@ def _fallback_plan(state: ReelState) -> ScriptPlan:
 def plan_node(state: ReelState) -> ReelState:
     model = os.environ.get("PLAN_MODEL", "anthropic/claude-sonnet-4-6")
     intent_json = state.intent.model_dump_json() if state.intent else "{}"
-    user = f"INTENT:\n{intent_json}\n\nDURATION_S: {state.duration_s}\n" \
-           f"WITH_MUSIC: {state.with_music}"
+    user = (
+        f"BRIEF:\n{state.brief}\n\n"
+        f"INTENT:\n{intent_json}\n\n"
+        f"DURATION_S: {state.duration_s}\n"
+        f"WITH_MUSIC: {state.with_music}"
+    )
 
     last_err: str | None = None
     for attempt in range(_MAX_RETRIES + 1):
