@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -29,6 +31,7 @@ class CreateRunResponse(BaseModel):
 
 class ApproveRequest(BaseModel):
     approved: bool
+    edits: dict[str, Any] | None = None
 
 
 @app.get("/healthz")
@@ -105,16 +108,16 @@ async def get_run(run_id: str) -> dict:
     snap = await REGISTRY.snapshot(run_id)
     if not snap:
         raise HTTPException(404, "run not found")
-    # Merge plan from disk so the UI can render PlanReviewPanel even when
-    # the registry snapshot doesn't carry it (the LangGraph plan_node writes
-    # plan.json, but doesn't update the in-memory registry).
-    if "plan" not in snap or not snap.get("plan"):
-        plan_path = _runs_dir() / run_id / "plan.json"
-        if plan_path.exists():
-            try:
-                snap["plan"] = json.loads(plan_path.read_text())
-            except Exception:
-                pass
+    # Always merge the latest plan from disk so the UI reflects post-edit
+    # state. plan.json is the source of truth: plan_node writes it, and the
+    # approve-plan endpoint rewrites it when the user submits edits. Reading
+    # it here keeps the registry snapshot from masking the edited version.
+    plan_path = _runs_dir() / run_id / "plan.json"
+    if plan_path.exists():
+        try:
+            snap["plan"] = json.loads(plan_path.read_text())
+        except Exception:
+            pass
     return snap
 
 
@@ -131,13 +134,86 @@ async def stream_run(run_id: str):
     return EventSourceResponse(gen())
 
 
+def _diff_plans(original: dict, edited: dict) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Per-field diff between two ScriptPlan dicts.
+
+    Returns (fields_changed, diffs) where diffs maps a dotted/indexed path to
+    {"before": ..., "after": ...}. Captured paths cover hook, voiceover_text,
+    voice_style, music_mood, plus per-scene visual_prompt / voiceover_excerpt
+    / motion / duration_s. This is the training-signal shape consumed by Plan
+    prompt distillation.
+    """
+    fields_changed: list[str] = []
+    diffs: dict[str, dict[str, Any]] = {}
+    top_keys = ["hook", "voiceover_text", "voice_style", "music_mood", "aspect_ratio"]
+    for key in top_keys:
+        before = original.get(key)
+        after = edited.get(key)
+        if before != after:
+            fields_changed.append(key)
+            diffs[key] = {"before": before, "after": after}
+
+    orig_scenes = original.get("scenes") or []
+    edit_scenes = edited.get("scenes") or []
+    n = max(len(orig_scenes), len(edit_scenes))
+    scene_keys = ["visual_prompt", "voiceover_excerpt", "motion", "duration_s", "scene_idx"]
+    for i in range(n):
+        o = orig_scenes[i] if i < len(orig_scenes) else {}
+        e = edit_scenes[i] if i < len(edit_scenes) else {}
+        for key in scene_keys:
+            before = o.get(key) if isinstance(o, dict) else None
+            after = e.get(key) if isinstance(e, dict) else None
+            if before != after:
+                path = f"scenes[{i}].{key}"
+                fields_changed.append(path)
+                diffs[path] = {"before": before, "after": after}
+    return fields_changed, diffs
+
+
 @app.post("/api/runs/{run_id}/approve-plan")
 async def approve_plan(run_id: str, req: ApproveRequest) -> dict:
     snap = await REGISTRY.snapshot(run_id)
     if not snap:
         raise HTTPException(404, "run not found")
-    await REGISTRY.set_approval(run_id, approved=req.approved)
-    return {"run_id": run_id, "approved": req.approved}
+
+    fields_changed: list[str] = []
+    if req.edits is not None:
+        run_dir = _runs_dir() / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = run_dir / "plan.json"
+        original_plan: dict = {}
+        if plan_path.exists():
+            try:
+                original_plan = json.loads(plan_path.read_text())
+            except Exception:
+                original_plan = {}
+        edited_plan = req.edits
+        fields_changed, diffs = _diff_plans(original_plan, edited_plan)
+        edits_record = {
+            "run_id": run_id,
+            "edited_at": datetime.now(timezone.utc).isoformat(),
+            "original_plan": original_plan,
+            "edited_plan": edited_plan,
+            "fields_changed": fields_changed,
+            "diffs": diffs,
+        }
+        (run_dir / "plan_edits.json").write_text(
+            json.dumps(edits_record, indent=2, default=str)
+        )
+        # Persist the edited plan so subsequent reads (and the Execute
+        # fan-out, which reads through state.plan refreshed in the gate)
+        # see the user's edits.
+        plan_path.write_text(json.dumps(edited_plan, indent=2, default=str))
+        await REGISTRY.set_approval(run_id, approved=req.approved, edited_plan=edited_plan)
+    else:
+        await REGISTRY.set_approval(run_id, approved=req.approved)
+
+    return {
+        "run_id": run_id,
+        "approved": req.approved,
+        "edited": req.edits is not None,
+        "fields_changed": fields_changed,
+    }
 
 
 @app.get("/api/runs/{run_id}/plan.json")

@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { approvePlan } from "@/lib/api";
-import type { ScriptPlan } from "@/lib/types";
+import type { Motion, Scene, ScriptPlan } from "@/lib/types";
+
+const MOTIONS: Motion[] = ["zoom_in", "zoom_out", "pan_left", "pan_right", "static"];
+
+function plansEqual(a: ScriptPlan, b: ScriptPlan): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export function PlanReviewPanel({
   runId,
@@ -15,11 +21,30 @@ export function PlanReviewPanel({
   onResolved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<ScriptPlan>(() => JSON.parse(JSON.stringify(plan)));
+
+  // Snapshot the original plan once at mount so the "Edited" badge tracks
+  // user edits, not server-side updates that could race in mid-edit.
+  const original = useMemo<ScriptPlan>(
+    () => JSON.parse(JSON.stringify(plan)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const isEdited = !plansEqual(original, draft);
+
+  function updateScene(idx: number, patch: Partial<Scene>) {
+    setDraft((d) => ({
+      ...d,
+      scenes: d.scenes.map((s) => (s.scene_idx === idx ? { ...s, ...patch } : s)),
+    }));
+  }
 
   async function decide(approved: boolean) {
     setBusy(true);
     try {
-      await approvePlan(runId, approved);
+      const edits = approved && isEdited ? draft : null;
+      await approvePlan(runId, approved, edits);
       onResolved();
     } finally {
       setBusy(false);
@@ -30,33 +55,97 @@ export function PlanReviewPanel({
     <div className="border border-amber-700 bg-amber-950/30 rounded p-5 space-y-4">
       <div className="flex items-baseline justify-between">
         <h3 className="text-lg font-semibold text-amber-300">Review the plan</h3>
-        <span className="text-xs text-amber-400">
-          No paid generation runs until you approve.
-        </span>
+        <div className="flex items-center gap-2">
+          {isEdited && (
+            <span className="text-xs px-2 py-0.5 rounded bg-amber-700/50 text-amber-100 border border-amber-600">
+              Edited
+            </span>
+          )}
+          <span className="text-xs text-amber-400">
+            No paid generation runs until you approve.
+          </span>
+        </div>
       </div>
 
       <div>
         <div className="text-xs uppercase text-neutral-400 mb-1">Hook</div>
-        <div className="text-base">{plan.hook}</div>
+        <input
+          type="text"
+          value={draft.hook}
+          onChange={(e) => setDraft((d) => ({ ...d, hook: e.target.value }))}
+          disabled={busy}
+          className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-base focus:outline-none focus:border-amber-500"
+        />
       </div>
 
       <div>
         <div className="text-xs uppercase text-neutral-400 mb-1">Voiceover</div>
-        <div className="text-sm leading-relaxed">{plan.voiceover_text}</div>
+        <textarea
+          value={draft.voiceover_text}
+          onChange={(e) => setDraft((d) => ({ ...d, voiceover_text: e.target.value }))}
+          disabled={busy}
+          rows={4}
+          className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm leading-relaxed focus:outline-none focus:border-amber-500"
+        />
       </div>
 
       <div className="space-y-3">
-        <div className="text-xs uppercase text-neutral-400">Scenes ({plan.scenes.length})</div>
-        {plan.scenes.map((s) => (
-          <div key={s.scene_idx} className="border border-neutral-800 rounded p-3 text-sm">
+        <div className="text-xs uppercase text-neutral-400">
+          Scenes ({draft.scenes.length})
+        </div>
+        {draft.scenes.map((s) => (
+          <div
+            key={s.scene_idx}
+            className="border border-neutral-800 rounded p-3 text-sm space-y-2"
+          >
             <div className="flex justify-between items-baseline">
               <div className="font-medium">Scene {s.scene_idx + 1}</div>
-              <div className="text-neutral-400 text-xs">
-                {s.duration_s.toFixed(1)}s, {s.motion}
+              <div className="flex items-center gap-2 text-neutral-400 text-xs">
+                <span>{s.duration_s.toFixed(1)}s</span>
+                <select
+                  value={s.motion}
+                  onChange={(e) =>
+                    updateScene(s.scene_idx, { motion: e.target.value as Motion })
+                  }
+                  disabled={busy}
+                  className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-200 focus:outline-none focus:border-amber-500"
+                >
+                  {MOTIONS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-            <div className="text-neutral-300 mt-1">{s.voiceover_excerpt}</div>
-            <div className="text-neutral-500 text-xs mt-1 italic">{s.visual_prompt}</div>
+            <div>
+              <div className="text-xs uppercase text-neutral-500 mb-1">
+                Voiceover excerpt
+              </div>
+              <textarea
+                value={s.voiceover_excerpt}
+                onChange={(e) =>
+                  updateScene(s.scene_idx, { voiceover_excerpt: e.target.value })
+                }
+                disabled={busy}
+                rows={2}
+                className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-200 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div>
+              <div className="text-xs uppercase text-neutral-500 mb-1">
+                Visual prompt
+              </div>
+              <textarea
+                value={s.visual_prompt}
+                onChange={(e) =>
+                  updateScene(s.scene_idx, { visual_prompt: e.target.value })
+                }
+                disabled={busy}
+                rows={2}
+                className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs italic text-neutral-300 focus:outline-none focus:border-amber-500"
+              />
+            </div>
           </div>
         ))}
       </div>

@@ -1,4 +1,4 @@
-import type { RunSnapshot } from "./types";
+import type { RunSnapshot, ScriptPlan } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -28,11 +28,15 @@ export async function listRuns(): Promise<RunSnapshot[]> {
   return r.json();
 }
 
-export async function approvePlan(id: string, approved: boolean): Promise<void> {
+export async function approvePlan(
+  id: string,
+  approved: boolean,
+  edits: ScriptPlan | null = null,
+): Promise<void> {
   const r = await fetch(`${BASE}/api/runs/${id}/approve-plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approved }),
+    body: JSON.stringify({ approved, edits }),
   });
   if (!r.ok) throw new Error(`approvePlan failed: ${r.status}`);
 }

@@ -27,6 +27,7 @@ class RunRegistry:
         self._closed: dict[str, bool] = {}
         self._approvals: dict[str, asyncio.Event] = {}
         self._approve_decisions: dict[str, bool] = {}
+        self._edited_plans: dict[str, dict] = {}
         self._lock = asyncio.Lock()
 
     def _runs_dir(self) -> Path:
@@ -118,11 +119,22 @@ class RunRegistry:
         await ev.wait()
         return self._approve_decisions.get(rid, False)
 
-    async def set_approval(self, rid: str, *, approved: bool) -> None:
+    async def set_approval(
+        self,
+        rid: str,
+        *,
+        approved: bool,
+        edited_plan: dict | None = None,
+    ) -> None:
         self._approve_decisions[rid] = approved
+        if edited_plan is not None:
+            self._edited_plans[rid] = edited_plan
         ev = self._approvals.get(rid)
         if ev:
             ev.set()
+
+    def get_edited_plan(self, rid: str) -> dict | None:
+        return self._edited_plans.get(rid)
 
 
 REGISTRY = RunRegistry()
