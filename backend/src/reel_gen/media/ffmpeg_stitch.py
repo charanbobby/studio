@@ -50,22 +50,46 @@ def _captions_to_ass(captions: list[CaptionWord], group: int = 3) -> str:
 
 
 def _motion_filter(motion: str, frames: int) -> str:
-    if motion == "static":
-        return f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
-    direction = {
-        "zoom_in":  "z='min(zoom+0.0008,1.15)'",
-        "zoom_out": "z='if(eq(on,0),1.15,max(zoom-0.0008,1.0))'",
-        "pan_left": "z='1.1'",
-        "pan_right": "z='1.1'",
-    }.get(motion, "z='min(zoom+0.0008,1.15)'")
-    pan_x = {
-        "pan_left":  "x='iw-(iw/zoom)-on*((iw-iw/zoom)/" + str(frames) + ")'",
-        "pan_right": "x='on*((iw-iw/zoom)/" + str(frames) + ")'",
-    }.get(motion, "x='iw/2-(iw/zoom/2)'")
-    pan_y = "y='ih/2-(ih/zoom/2)'"
-    return (
-        f"scale=2160:3840,zoompan={direction}:d={frames}:{pan_x}:{pan_y}:s=1080x1920:fps={FPS}"
-    )
+    """Animated crop on a pre-scaled image. Avoids zoompan (which silently
+    repeats the first input frame when fed a `-loop 1 -t X -i pic.png`
+    stream and broke every multi-scene reel).
+
+    ffmpeg's crop filter evaluates w and h ONCE at init, but x and y are
+    evaluated per-frame. So "zoom" cannot be done by animating crop size;
+    instead we approximate motion via a pan with directional bias. All
+    modes produce visible Ken Burns motion across the scene duration.
+
+    Pipeline: scale source to ~1.4x target (1512x2688), crop a fixed
+    1080x1920 window whose x/y animate via `t` (input timestamp seconds).
+    `t` ranges 0 to duration_s within each looped input.
+    """
+    duration_s = frames / FPS
+    D = max(duration_s, 0.1)
+    # Pre-scale so there's room to pan around without exposing edges.
+    SCALE_W, SCALE_H = 1512, 2688  # 1.4x target
+    PAN_X = SCALE_W - 1080  # 432 px of horizontal slack
+    PAN_Y = SCALE_H - 1920  # 768 px of vertical slack
+
+    if motion == "zoom_in":
+        # Diagonal pan from a corner toward center (feels like a zoom-in)
+        x = f"{PAN_X}*(1-t/{D})/2"
+        y = f"{PAN_Y}*(1-t/{D})/2"
+    elif motion == "zoom_out":
+        # Pan from center outward (feels like zoom-out)
+        x = f"{PAN_X}*(t/{D})/2 + {PAN_X}/4"
+        y = f"{PAN_Y}*(t/{D})/2 + {PAN_Y}/4"
+    elif motion == "pan_left":
+        x = f"{PAN_X}*(1-t/{D})"
+        y = f"{PAN_Y}/2"
+    elif motion == "pan_right":
+        x = f"{PAN_X}*t/{D}"
+        y = f"{PAN_Y}/2"
+    else:  # static
+        x = f"{PAN_X}/2"
+        y = f"{PAN_Y}/2"
+
+    crop_expr = f"crop=w=1080:h=1920:x='{x}':y='{y}'"
+    return f"scale={SCALE_W}:{SCALE_H},{crop_expr},setsar=1,fps={FPS}"
 
 
 def stitch_reel(
@@ -100,7 +124,7 @@ def stitch_reel(
         ass_path.write_text(_captions_to_ass(captions))
         filter_parts.append(f"[vbase]subtitles={ass_path.name}[vout]")
     else:
-        filter_parts.append(f"[vbase]copy[vout]")
+        filter_parts.append(f"[vbase]null[vout]")
 
     voice_idx = len(plan.scenes)
     inputs += ["-i", str(Path(voiceover).resolve())]
