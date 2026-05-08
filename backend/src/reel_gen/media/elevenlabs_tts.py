@@ -40,11 +40,20 @@ def _chars_to_words(
 
 
 @contextmanager
-def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[Any]:
-    """Yield a Langfuse span handle for paid media calls, or None if unavailable.
+def _media_generation(
+    *,
+    name: str,
+    model: str,
+    input_payload: dict[str, Any],
+    metadata: dict[str, Any],
+) -> Iterator[Any]:
+    """Yield a Langfuse generation handle for paid media calls, or None if unavailable.
 
-    Mirrors the helper in ``llm.openrouter`` so test environments without
-    Langfuse credentials degrade to a no-op rather than failing the call.
+    Generation observations (vs span) surface ``cost_details`` and
+    ``usage_details`` columns in the Langfuse dashboard, which is what we want
+    for paid TTS calls. Mirrors the helper in ``llm.openrouter`` so test
+    environments without Langfuse credentials degrade to a no-op rather than
+    failing the call.
     """
     try:
         from langfuse import get_client  # local import (optional dep)
@@ -57,7 +66,8 @@ def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str,
     try:
         cm = lf.start_as_current_observation(
             name=name,
-            as_type="span",
+            as_type="generation",
+            model=model,
             input=input_payload,
             metadata=metadata,
         )
@@ -65,8 +75,8 @@ def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str,
         yield None
         return
 
-    with cm as span:
-        yield span
+    with cm as gen:
+        yield gen
 
 
 def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionWord], CostEntry]:
@@ -90,22 +100,25 @@ def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionW
     }
     headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
 
-    span_input = {
+    gen_input = {
         "text": text,
-        "model_id": body["model_id"],
+        "voice_id": voice_id,
         "voice_settings": body["voice_settings"],
     }
-    span_metadata = {
+    gen_metadata = {
+        "phase": "tts",
         "provider": "elevenlabs",
-        "model": body["model_id"],
         "voice_id": voice_id,
         "chars": chars_used,
         "unit_label": "tts_chars",
     }
 
-    with _media_span(
-        name="elevenlabs_tts", input_payload=span_input, metadata=span_metadata
-    ) as span:
+    with _media_generation(
+        name="elevenlabs.tts",
+        model=body["model_id"],
+        input_payload=gen_input,
+        metadata=gen_metadata,
+    ) as gen:
         r = httpx.post(url, json=body, headers=headers, timeout=120)
         r.raise_for_status()
         payload = r.json()
@@ -126,16 +139,18 @@ def generate_voiceover(*, text: str, out_dir: Path) -> tuple[Path, list[CaptionW
         )
         add_to_today(cost.cost_usd)
 
-        if span is not None:
+        if gen is not None:
             try:
-                span.update(
+                gen.update(
                     output={
                         "mp3_path": str(mp3),
                         "mp3_bytes": mp3.stat().st_size,
                         "n_words": len(words),
                         "duration_s": (words[-1].end_s if words else 0.0),
                     },
-                    metadata={**span_metadata, "cost_usd": float(cost.cost_usd)},
+                    usage_details={"tts_chars": chars_used},
+                    cost_details={"total": float(cost.cost_usd)},
+                    metadata={**gen_metadata, "cost_usd": float(cost.cost_usd)},
                 )
             except Exception:
                 pass

@@ -1,6 +1,6 @@
 import type { FieldFeedback } from "@/components/RatingControl";
 
-import type { RunSnapshot, ScriptPlan } from "./types";
+import type { ReelFeedback, RunSnapshot, ScriptPlan } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -46,4 +46,16 @@ export async function approvePlan(
 
 export function reelUrl(id: string): string {
   return `${BASE}/api/runs/${id}/reel.mp4`;
+}
+
+export async function submitReelFeedback(
+  id: string,
+  fb: ReelFeedback,
+): Promise<void> {
+  const r = await fetch(`${BASE}/api/runs/${id}/reel-feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fb),
+  });
+  if (!r.ok) throw new Error(`submitReelFeedback failed: ${r.status}`);
 }

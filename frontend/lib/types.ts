@@ -34,3 +34,13 @@ export interface RunEvent {
   event: string;
   [key: string]: unknown;
 }
+
+export type ReelRating = "good" | "partial" | "bad" | null;
+
+export interface ReelFeedback {
+  reel_quality: ReelRating;
+  voice_fidelity: ReelRating;
+  brand_voice_match: ReelRating;
+  would_ship: boolean | null;
+  note: string;
+}

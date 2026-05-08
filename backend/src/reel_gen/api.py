@@ -41,6 +41,50 @@ class ApproveRequest(BaseModel):
     feedback: dict[str, FieldFeedbackModel] | None = None
 
 
+class ReelFeedbackRequest(BaseModel):
+    reel_quality: Literal["good", "partial", "bad"] | None = None
+    voice_fidelity: Literal["good", "partial", "bad"] | None = None
+    brand_voice_match: Literal["good", "partial", "bad"] | None = None
+    would_ship: bool | None = None
+    note: str = ""
+
+
+_RATING_TO_NUMERIC = {"good": 1.0, "partial": 0.5, "bad": 0.0}
+
+
+def _emit_score(
+    *,
+    session_id: str,
+    name: str,
+    value: float,
+    string_value: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """Emit a single Langfuse score linked to the run's session.
+
+    Best-effort: any failure to construct or call the Langfuse client is
+    swallowed so a misconfigured credential or transient network failure
+    cannot break the user-facing approve / feedback flow.
+    """
+    try:
+        from langfuse import get_client  # local import (optional dep)
+
+        lf = get_client()
+        kwargs: dict[str, Any] = {
+            "session_id": session_id,
+            "name": name,
+            "value": value,
+            "data_type": "NUMERIC",
+        }
+        if string_value is not None:
+            kwargs["string_value"] = string_value
+        if comment:
+            kwargs["comment"] = comment
+        lf.create_score(**kwargs)
+    except Exception:
+        pass
+
+
 @app.get("/healthz")
 @app.get("/api/healthz")
 def healthz() -> dict[str, str]:
@@ -243,8 +287,37 @@ async def approve_plan(run_id: str, req: ApproveRequest) -> dict:
                     json.dumps(feedback_record, indent=2, default=str)
                 )
                 feedback_written = True
+
+                # Mirror each rated field as a Langfuse Score on the run's
+                # session so the dashboard can filter "show me runs where the
+                # hook was rated bad". Best-effort: any Langfuse failure is
+                # swallowed by _emit_score so it never blocks the user.
+                for path, fb in req.feedback.items():
+                    rating = fb.rating
+                    if rating is None:
+                        continue
+                    numeric = _RATING_TO_NUMERIC.get(rating)
+                    if numeric is None:
+                        continue
+                    _emit_score(
+                        session_id=run_id,
+                        name=f"plan.{path}",
+                        value=numeric,
+                        string_value=rating,
+                        comment=(fb.note or None),
+                    )
         except Exception:
             feedback_written = False
+
+    # Edit volume as a separate score: useful for "how much did the user
+    # rewrite the plan" analyses. Emit even when feedback is empty, as long as
+    # edits were submitted.
+    if req.edits is not None:
+        _emit_score(
+            session_id=run_id,
+            name="plan.fields_edited_count",
+            value=float(len(fields_changed)),
+        )
 
     return {
         "run_id": run_id,
@@ -253,6 +326,66 @@ async def approve_plan(run_id: str, req: ApproveRequest) -> dict:
         "fields_changed": fields_changed,
         "feedback_written": feedback_written,
     }
+
+
+@app.post("/api/runs/{run_id}/reel-feedback")
+async def reel_feedback(run_id: str, req: ReelFeedbackRequest) -> dict:
+    """Capture post-reel user feedback after the final reel renders.
+
+    Persists to ``runs/<id>/reel_feedback.json`` and emits one Langfuse Score
+    per non-null rating, plus a numeric ``reel.would_ship`` score when set.
+    """
+    snap = await REGISTRY.snapshot(run_id)
+    if not snap:
+        raise HTTPException(404, "run not found")
+
+    run_dir = _runs_dir() / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "run_id": run_id,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+        "reel_quality": req.reel_quality,
+        "voice_fidelity": req.voice_fidelity,
+        "brand_voice_match": req.brand_voice_match,
+        "would_ship": req.would_ship,
+        "note": req.note,
+    }
+    (run_dir / "reel_feedback.json").write_text(
+        json.dumps(record, indent=2, default=str)
+    )
+
+    # Mirror every non-null rating to Langfuse as a Score linked to the run's
+    # session. Field name mirrors the plan.* convention so dashboard filters
+    # group neatly (plan.* vs reel.*).
+    rating_fields = {
+        "reel.quality": req.reel_quality,
+        "reel.voice_fidelity": req.voice_fidelity,
+        "reel.brand_voice_match": req.brand_voice_match,
+    }
+    for name, rating in rating_fields.items():
+        if rating is None:
+            continue
+        numeric = _RATING_TO_NUMERIC.get(rating)
+        if numeric is None:
+            continue
+        _emit_score(
+            session_id=run_id,
+            name=name,
+            value=numeric,
+            string_value=rating,
+            comment=(req.note or None),
+        )
+
+    if req.would_ship is not None:
+        _emit_score(
+            session_id=run_id,
+            name="reel.would_ship",
+            value=1.0 if req.would_ship else 0.0,
+            string_value="yes" if req.would_ship else "no",
+            comment=(req.note or None),
+        )
+
+    return {"run_id": run_id, "saved": True}
 
 
 @app.get("/api/runs/{run_id}/plan.json")

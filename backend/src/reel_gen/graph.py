@@ -1,9 +1,10 @@
-"""LangGraph wiring: Extract -> Plan -> Approval Gate -> Execute -> Stitch."""
+"""LangGraph wiring: Extract -> Plan -> Approval Gate -> Execute -> Stitch -> Eval."""
 from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
 from reel_gen.nodes.approval_gate import approval_gate_node
+from reel_gen.nodes.eval_brand_voice import eval_brand_voice_node
 from reel_gen.nodes.execute import execute_node
 from reel_gen.nodes.extract import extract_node
 from reel_gen.nodes.plan import plan_node
@@ -22,6 +23,7 @@ def build_graph():
     g.add_node("approval_gate", approval_gate_node)
     g.add_node("execute", execute_node)
     g.add_node("stitch", stitch_node)
+    g.add_node("eval_brand_voice", eval_brand_voice_node)
     g.add_node("end_rejected", lambda s: s)
 
     g.set_entry_point("extract")
@@ -32,7 +34,11 @@ def build_graph():
         "end_rejected": "end_rejected",
     })
     g.add_edge("execute", "stitch")
-    g.add_edge("stitch", END)
+    # Brand-voice judge runs after stitch and writes a Langfuse score plus
+    # eval_brand_voice.json. Non-fatal: failures inside the node are appended
+    # to state.errors and do not block reaching END.
+    g.add_edge("stitch", "eval_brand_voice")
+    g.add_edge("eval_brand_voice", END)
     g.add_edge("end_rejected", END)
     return g.compile()
 

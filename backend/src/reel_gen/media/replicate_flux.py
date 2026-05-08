@@ -50,8 +50,18 @@ def _call(prompt: str):
 
 
 @contextmanager
-def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[Any]:
-    """Yield a Langfuse span handle for paid media calls, or None if unavailable."""
+def _media_generation(
+    *,
+    name: str,
+    model: str,
+    input_payload: dict[str, Any],
+    metadata: dict[str, Any],
+) -> Iterator[Any]:
+    """Yield a Langfuse generation handle for paid media calls, or None if unavailable.
+
+    Generation observations (vs span) surface ``cost_details`` and
+    ``usage_details`` columns in the Langfuse dashboard.
+    """
     try:
         from langfuse import get_client  # local import (optional dep)
 
@@ -63,7 +73,8 @@ def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str,
     try:
         cm = lf.start_as_current_observation(
             name=name,
-            as_type="span",
+            as_type="generation",
+            model=model,
             input=input_payload,
             metadata=metadata,
         )
@@ -71,8 +82,8 @@ def _media_span(*, name: str, input_payload: dict[str, Any], metadata: dict[str,
         yield None
         return
 
-    with cm as span:
-        yield span
+    with cm as gen:
+        yield gen
 
 
 def generate_image(
@@ -86,20 +97,24 @@ def generate_image(
     est = cost_for_units(provider="replicate", unit_label="images", units=1)
     check_cap(prospective_cost_usd=est)
 
-    span_input = {
+    gen_input = {
         "prompt": prompt,
         "aspect_ratio": "9:16",
         "scene_idx": scene_idx,
     }
-    span_metadata = {
+    gen_metadata = {
+        "phase": "image",
+        "scene_idx": scene_idx,
         "provider": "replicate",
-        "model": _FLUX_MODEL,
         "unit_label": "images",
     }
 
-    with _media_span(
-        name="replicate_flux", input_payload=span_input, metadata=span_metadata
-    ) as span:
+    with _media_generation(
+        name="replicate.flux_schnell",
+        model=_FLUX_MODEL,
+        input_payload=gen_input,
+        metadata=gen_metadata,
+    ) as gen:
         current_prompt = prompt
         last_err: Exception | None = None
         nsfw_retried = False
@@ -121,17 +136,17 @@ def generate_image(
                     wait = rate_limit_backoff_s * (1 + attempt)
                     time.sleep(wait)
                     continue
-                if span is not None:
+                if gen is not None:
                     try:
-                        span.update(level="ERROR", status_message=repr(e))
+                        gen.update(level="ERROR", status_message=repr(e))
                     except Exception:
                         pass
                 raise
         else:
             if last_err:
-                if span is not None:
+                if gen is not None:
                     try:
-                        span.update(level="ERROR", status_message=repr(last_err))
+                        gen.update(level="ERROR", status_message=repr(last_err))
                     except Exception:
                         pass
                 raise last_err
@@ -146,16 +161,18 @@ def generate_image(
         cost = unit_cost_post(phase="image", provider="replicate", unit_label="images", units=1)
         add_to_today(cost.cost_usd)
 
-        if span is not None:
+        if gen is not None:
             try:
-                span.update(
+                gen.update(
                     output={
                         "png_path": str(p),
-                        "png_bytes": p.stat().st_size,
+                        "size_bytes": p.stat().st_size,
                         "final_prompt": current_prompt,
                         "nsfw_retried": nsfw_retried,
                     },
-                    metadata={**span_metadata, "cost_usd": float(cost.cost_usd)},
+                    usage_details={"images": 1},
+                    cost_details={"total": float(cost.cost_usd)},
+                    metadata={**gen_metadata, "cost_usd": float(cost.cost_usd)},
                 )
             except Exception:
                 pass

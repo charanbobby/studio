@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { CostLedger } from "@/components/CostLedger";
 import { PlanReviewPanel } from "@/components/PlanReviewPanel";
 import { ProgressTimeline } from "@/components/ProgressTimeline";
+import { ReelFeedbackPanel } from "@/components/ReelFeedbackPanel";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { getRun } from "@/lib/api";
 import { useRunStream } from "@/lib/sse";
@@ -91,7 +92,12 @@ export default function RunPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {snap.status === "completed" && <ReelPlayer runId={snap.run_id} />}
+      {snap.status === "completed" && (
+        <>
+          <ReelPlayer runId={snap.run_id} />
+          <ReelFeedbackPanel runId={snap.run_id} />
+        </>
+      )}
 
       {snap.status === "rejected" && (
         <div className="text-neutral-400">Run rejected. No media was generated.</div>
