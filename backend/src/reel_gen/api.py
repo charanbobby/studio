@@ -32,6 +32,7 @@ class ApproveRequest(BaseModel):
 
 
 @app.get("/healthz")
+@app.get("/api/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "service": "sri-studio-backend"}
 
