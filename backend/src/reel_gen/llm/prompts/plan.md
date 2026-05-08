@@ -76,6 +76,25 @@ When BRIEF is specific, do NOT invent generic stock-video b-roll. The following 
 
 If the brief asks for these, fine; otherwise use the brief's literal cues.
 
+## Composition variation across scenes (anti-monotony)
+
+When the brief calls for a sequence of related moments (e.g. "cursor blinking, then AI visuals snapping into place, then a hand clicking Approve, then a render bar filling"), the resulting scenes share a subject domain (person + screen + studio). Without deliberate variation, all those scenes will look like the same shot at slightly different moments, and the reel will feel like one image panning around.
+
+To prevent this, every plan MUST deliberately vary across scenes on at least three of these axes:
+
+- Framing scale: extreme close-up, macro, medium, wide, ultra-wide. Alternate scales scene-by-scene.
+- Subject angle: head-on, side profile, three-quarter, over-shoulder, top-down, low-angle, dutch tilt.
+- Subject focus: vary which body part or object is the hero (hands, face, eyes, full silhouette, screen-only with no person, abstract).
+- Depth and field: vary between deep focus, shallow depth of field, foreground-blocking compositions, layered foreground-midground-background.
+
+Hard constraints:
+
+- No two consecutive scenes may share BOTH framing scale AND subject angle. If scene N is "medium head-on of person at desk," scene N+1 cannot also be "medium head-on of person at screen."
+- At least one scene in any sequence of 4+ "person + screen" beats MUST have NO visible person (e.g. screen-only macro, abstract texture, or environmental detail like the desk surface, books, or window).
+- At least one scene MUST be wide enough to show the studio environment, and at least one MUST be a macro/extreme close-up. Do not produce 4+ medium shots in a row.
+
+Before emitting the JSON, mentally read the visual_prompts in order. If two adjacent prompts feel interchangeable, rewrite one with a fundamentally different scale or angle.
+
 ## Closing/title scenes: abstract motif, not text
 
 If a brief asks for a closing card, a name card, a logo reveal, a wordmark, or a title beat, the visual_prompt for that scene MUST describe an abstract motif (geometric, atmospheric, lighting-only) and MUST NOT request the brand text or logotype to be rendered in the image. Image generation models cannot render legible text or logos reliably.
