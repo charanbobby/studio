@@ -72,6 +72,9 @@ docs/questionnaire-draft.md
 docs/SriStudio.mp4
 samples/SriStudio.mp4
 _resume.md
+SUBMISSION.md
+dist/
+scripts/build-submission-pdf/
 
 # Notebook checkpoints
 .ipynb_checkpoints/

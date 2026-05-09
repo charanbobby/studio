@@ -2,7 +2,7 @@
 
 AI reel generator. A text brief becomes a vertical short-form video with voice-cloned narration, image scenes, and burn-in captions, with a mandatory human-in-the-loop approval gate before any paid media APIs fire.
 
-Live: https://studio.sshub.dev/ (basic auth)
+Live: https://studio.sshub.dev/ (basic auth; credentials shared in the submission email)
 
 ## What it does
 
