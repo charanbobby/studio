@@ -78,3 +78,6 @@ scripts/build-submission-pdf/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+
+# Superpowers brainstorm session artifacts (visual companion mockups)
+.superpowers/
