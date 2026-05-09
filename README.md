@@ -22,9 +22,6 @@ frontend/       Next.js 14 app (typed, Tailwind), runs page + plan-review UI
 docs/
   decisions/    ADRs (LangGraph over n8n, Flux over SDXL, runs-as-filesystem, ...)
   superpowers/  Spec and 11-phase implementation plan
-  build-journal.md
-  walkthrough-script.md
-  diagrams.html
 deploy/         tar-over-ssh deploy script for Hetzner
 nginx/          studio.sshub.dev system-nginx site config
 samples/        End-to-end sample reels (mp4 + plan.json + cost.json)

@@ -17,6 +17,7 @@ venv/
 
 # Run artifacts (generated reels, intermediate assets, traces)
 /runs/
+/backend/runs/
 out/
 experiments/out/
 experiments/cache/
@@ -59,6 +60,18 @@ e2e-success-*.png
 # Personal application materials (not part of the shipping product)
 AI_Solutions_Engineer_Assessment_Packet.pdf
 Application*/
+
+# Demo / submission prep artifacts (not part of the shipping product)
+docs/walkthrough-script.md
+docs/walkthrough.html
+docs/diagrams.html
+docs/cover-note-template.md
+docs/submission-checklist.md
+docs/build-journal.md
+docs/questionnaire-draft.md
+docs/SriStudio.mp4
+samples/SriStudio.mp4
+_resume.md
 
 # Notebook checkpoints
 .ipynb_checkpoints/
