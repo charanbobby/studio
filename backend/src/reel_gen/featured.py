@@ -62,4 +62,15 @@ def list_featured_runs(pin: str | None, limit: int) -> list[FeaturedRun]:
     # Newest-first by feedback submitted_at. Empty timestamps sort last.
     candidates.sort(key=lambda r: r.completed_at or "", reverse=True)
 
-    return candidates[: max(0, limit)]
+    pin_item: FeaturedRun | None = None
+    if pin:
+        pin_item = next((c for c in candidates if c.run_id == pin), None)
+        if pin_item is not None:
+            pin_item = pin_item.model_copy(update={"pinned": True})
+            candidates = [c for c in candidates if c.run_id != pin]
+
+    out: list[FeaturedRun] = []
+    if pin_item is not None:
+        out.append(pin_item)
+    out.extend(candidates[: max(0, limit - len(out))])
+    return out

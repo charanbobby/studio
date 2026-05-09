@@ -87,3 +87,44 @@ def test_newest_first_by_submitted_at(tmp_path, monkeypatch):
 
     out = list_featured_runs(pin=None, limit=3)
     assert [r.run_id for r in out] == ["newer", "middle", "older"]
+
+
+def test_pin_forced_to_slot_zero(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "pin", submitted_at="2026-05-01T00:00:00+00:00")
+    _seed_run(tmp_path, "newer1", submitted_at="2026-05-08T00:00:00+00:00")
+    _seed_run(tmp_path, "newer2", submitted_at="2026-05-09T00:00:00+00:00")
+
+    out = list_featured_runs(pin="pin", limit=3)
+    assert [r.run_id for r in out] == ["pin", "newer2", "newer1"]
+    assert out[0].pinned is True
+    assert out[1].pinned is False
+    assert out[2].pinned is False
+
+
+def test_pin_excluded_from_remaining_pool(tmp_path, monkeypatch):
+    """Pin must not also appear in the newest-first slot."""
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "pin", submitted_at="2026-05-09T00:00:00+00:00")
+    _seed_run(tmp_path, "other", submitted_at="2026-05-08T00:00:00+00:00")
+
+    out = list_featured_runs(pin="pin", limit=3)
+    assert [r.run_id for r in out] == ["pin", "other"]
+
+
+def test_pin_id_not_on_disk_ignored(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "real")
+    out = list_featured_runs(pin="ghost", limit=3)
+    assert [r.run_id for r in out] == ["real"]
+    assert out[0].pinned is False
+
+
+def test_pin_exists_but_does_not_qualify(tmp_path, monkeypatch):
+    """If pin run is on disk but not completed+would_ship, treat as missing."""
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "pin", would_ship=False)
+    _seed_run(tmp_path, "real", submitted_at="2026-05-09T00:00:00+00:00")
+
+    out = list_featured_runs(pin="pin", limit=3)
+    assert [r.run_id for r in out] == ["real"]
