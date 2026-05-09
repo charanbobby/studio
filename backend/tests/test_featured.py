@@ -77,3 +77,13 @@ def test_missing_feedback_file_excluded(tmp_path, monkeypatch):
     # no reel_feedback.json on purpose
 
     assert list_featured_runs(pin=None, limit=3) == []
+
+
+def test_newest_first_by_submitted_at(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "older", submitted_at="2026-05-01T00:00:00+00:00")
+    _seed_run(tmp_path, "newer", submitted_at="2026-05-09T00:00:00+00:00")
+    _seed_run(tmp_path, "middle", submitted_at="2026-05-05T00:00:00+00:00")
+
+    out = list_featured_runs(pin=None, limit=3)
+    assert [r.run_id for r in out] == ["newer", "middle", "older"]

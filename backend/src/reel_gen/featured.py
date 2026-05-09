@@ -59,4 +59,7 @@ def list_featured_runs(pin: str | None, limit: int) -> list[FeaturedRun]:
             )
         )
 
+    # Newest-first by feedback submitted_at. Empty timestamps sort last.
+    candidates.sort(key=lambda r: r.completed_at or "", reverse=True)
+
     return candidates[: max(0, limit)]
