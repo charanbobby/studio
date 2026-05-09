@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from reel_gen.featured import FeaturedRun, list_featured_runs
 from reel_gen.runs import REGISTRY
 from reel_gen.tracing.langfuse_client import flush as flush_langfuse
 from reel_gen.tracing.langfuse_client import run_session
@@ -213,6 +214,16 @@ async def create_run(req: CreateRunRequest) -> CreateRunResponse:
 @app.get("/api/runs")
 async def list_runs() -> list[dict]:
     return await REGISTRY.list_runs()
+
+
+@app.get("/api/featured-runs", response_model=list[FeaturedRun])
+def get_featured_runs(pin: str | None = None, limit: int = 3) -> list[FeaturedRun]:
+    """Return up to `limit` runs that the user marked would_ship.
+
+    The pinned run id (if it qualifies) is forced into slot 0. Remaining
+    slots are filled newest-first by reel_feedback.submitted_at.
+    """
+    return list_featured_runs(pin=pin, limit=limit)
 
 
 @app.get("/api/runs/{run_id}")
