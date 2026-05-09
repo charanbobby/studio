@@ -1,4 +1,27 @@
-from reel_gen.featured import FeaturedRun
+import json
+from pathlib import Path
+
+from reel_gen.featured import FeaturedRun, list_featured_runs
+
+
+def _seed_run(
+    runs_dir: Path,
+    run_id: str,
+    *,
+    status: str = "completed",
+    would_ship: bool = True,
+    topic: str = "a brief",
+    submitted_at: str = "2026-05-09T12:00:00+00:00",
+) -> Path:
+    """Create a fake run dir with the three JSON files the selector reads."""
+    d = runs_dir / run_id
+    d.mkdir(parents=True)
+    (d / "state.json").write_text(json.dumps({"status": status}))
+    (d / "intent.json").write_text(json.dumps({"topic": topic}))
+    (d / "reel_feedback.json").write_text(
+        json.dumps({"would_ship": would_ship, "submitted_at": submitted_at})
+    )
+    return d
 
 
 def test_featured_run_model_round_trips():
@@ -24,3 +47,33 @@ def test_featured_run_completed_at_optional():
         pinned=True,
     )
     assert fr.completed_at is None
+
+
+def test_empty_runs_dir_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    assert list_featured_runs(pin=None, limit=3) == []
+
+
+def test_only_completed_and_would_ship_returned(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "good", status="completed", would_ship=True)
+    _seed_run(tmp_path, "rejected", status="completed", would_ship=False)
+    _seed_run(tmp_path, "failed", status="failed", would_ship=True)
+
+    out = list_featured_runs(pin=None, limit=3)
+    ids = [r.run_id for r in out]
+    assert ids == ["good"]
+    assert out[0].brief == "a brief"
+    assert out[0].reel_url == "/api/runs/good/reel.mp4"
+    assert out[0].pinned is False
+
+
+def test_missing_feedback_file_excluded(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    d = tmp_path / "no_feedback"
+    d.mkdir()
+    (d / "state.json").write_text(json.dumps({"status": "completed"}))
+    (d / "intent.json").write_text(json.dumps({"topic": "x"}))
+    # no reel_feedback.json on purpose
+
+    assert list_featured_runs(pin=None, limit=3) == []
