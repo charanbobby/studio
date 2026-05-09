@@ -128,3 +128,18 @@ def test_pin_exists_but_does_not_qualify(tmp_path, monkeypatch):
 
     out = list_featured_runs(pin="pin", limit=3)
     assert [r.run_id for r in out] == ["real"]
+
+
+def test_limit_one_with_pin_returns_only_pin(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "pin", submitted_at="2026-05-01T00:00:00+00:00")
+    _seed_run(tmp_path, "newer", submitted_at="2026-05-09T00:00:00+00:00")
+
+    out = list_featured_runs(pin="pin", limit=1)
+    assert [r.run_id for r in out] == ["pin"]
+
+
+def test_limit_zero_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    _seed_run(tmp_path, "anything")
+    assert list_featured_runs(pin=None, limit=0) == []
