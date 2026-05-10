@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { FeaturedTile, type FeaturedRun } from "./FeaturedTile";
 
 const PINNED_RUN_ID = "05821f3a380d";
@@ -43,6 +44,22 @@ export async function FeaturedRuns() {
         {runs.map((r) => (
           <FeaturedTile key={r.run_id} run={r} />
         ))}
+        <Link href="/extensions" className="block">
+          <div className="flex flex-col gap-2">
+            <div className="relative rounded-md border border-neutral-800 bg-black p-4 hover:border-neutral-600 transition overflow-hidden">
+              <div className="text-xs uppercase tracking-wider text-neutral-500">
+                Extensions
+              </div>
+              <div className="mt-2 text-lg font-semibold text-white">
+                The extension story
+              </div>
+              <div className="mt-1 text-sm text-neutral-400">
+                Helper API, MCP, sample videos
+              </div>
+              <div className="mt-4 text-xs text-neutral-500">Read &rarr;</div>
+            </div>
+          </div>
+        </Link>
       </div>
     </section>
   );
