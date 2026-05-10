@@ -81,3 +81,8 @@ scripts/build-submission-pdf/
 
 # Superpowers brainstorm session artifacts (visual companion mockups)
 .superpowers/
+
+# Helper sub-project local artifacts
+.venv-service/
+.venv-mcp/
+sri_studio_helper.egg-info/

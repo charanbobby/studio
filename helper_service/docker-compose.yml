@@ -1,0 +1,21 @@
+services:
+  helper:
+    build:
+      context: ..
+      dockerfile: helper_service/Dockerfile
+    image: sri-studio-helper:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:8001:8000"]
+    volumes:
+      - .\data:/data
+    environment:
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - HELPER_AUTH_KEY=${HELPER_AUTH_KEY}
+      - DAILY_BUDGET_USD=${DAILY_BUDGET_USD:-5}
+      - JOB_TTL_DAYS=${JOB_TTL_DAYS:-7}
+      - ELEVENLABS_USD_PER_CHAR=${ELEVENLABS_USD_PER_CHAR:-0.00044}
+      - HELPER_SKILL_PATH=/app/SKILL.md
+      - HELPER_DATA_DIR=/data
+    deploy:
+      resources:
+        limits: { cpus: "2", memory: "3G" }
