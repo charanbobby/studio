@@ -4,36 +4,36 @@ import Link from 'next/link';
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
     h1: ({ children }) => (
-      <h1 className="text-4xl font-bold text-white mt-2 mb-2 tracking-tight">
+      <h1 className="font-[family-name:var(--font-display)] text-5xl font-medium tracking-tight text-white mt-2 mb-2">
         {children}
       </h1>
     ),
     h2: ({ children }) => (
-      <h2 className="text-2xl font-semibold text-white mt-12 mb-4 tracking-tight">
+      <h2 className="font-[family-name:var(--font-display)] text-3xl font-medium tracking-tight text-white mt-12 mb-4">
         {children}
       </h2>
     ),
     h3: ({ children }) => (
-      <h3 className="text-xl font-semibold text-white mt-8 mb-3">
+      <h3 className="font-[family-name:var(--font-display)] text-xl font-medium text-white mt-8 mb-3">
         {children}
       </h3>
     ),
     p: ({ children }) => (
-      <p className="text-base leading-relaxed text-neutral-300 my-4">
+      <p className="font-[family-name:var(--font-body),system-ui] text-base leading-relaxed text-neutral-300 my-4">
         {children}
       </p>
     ),
     strong: ({ children }) => (
       <strong className="font-semibold text-white">{children}</strong>
     ),
-    em: ({ children }) => <em className="italic">{children}</em>,
+    em: ({ children }) => <em className="italic text-amber-300">{children}</em>,
     ul: ({ children }) => (
-      <ul className="list-disc list-outside pl-6 my-4 space-y-2 text-neutral-300">
+      <ul className="list-disc list-outside pl-6 my-4 space-y-2 font-[family-name:var(--font-body),system-ui] text-neutral-300">
         {children}
       </ul>
     ),
     ol: ({ children }) => (
-      <ol className="list-decimal list-outside pl-6 my-4 space-y-2 text-neutral-300">
+      <ol className="list-decimal list-outside pl-6 my-4 space-y-2 font-[family-name:var(--font-body),system-ui] text-neutral-300">
         {children}
       </ol>
     ),
@@ -41,7 +41,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     a: ({ href, children }) => {
       const isExternal = typeof href === 'string' && /^https?:\/\//.test(href);
       const className =
-        'text-sky-400 underline underline-offset-4 decoration-sky-700 hover:decoration-sky-400 hover:text-sky-300 transition';
+        'text-amber-300 underline underline-offset-4 decoration-amber-700/60 hover:decoration-amber-300 hover:text-amber-200 transition';
       if (isExternal) {
         return (
           <a href={href} className={className} target="_blank" rel="noopener noreferrer">
@@ -56,18 +56,18 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
       );
     },
     code: ({ children }) => (
-      <code className="rounded bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 text-sm text-neutral-200 font-mono">
+      <code className="rounded bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 text-[0.85em] text-amber-200 font-[family-name:var(--font-mono),ui-monospace]">
         {children}
       </code>
     ),
     pre: ({ children }) => (
-      <pre className="rounded-lg bg-neutral-900 border border-neutral-800 p-4 overflow-x-auto my-4 text-sm">
+      <pre className="rounded-lg bg-neutral-900 border border-neutral-800 p-4 overflow-x-auto my-4 text-sm font-[family-name:var(--font-mono),ui-monospace]">
         {children}
       </pre>
     ),
-    hr: () => <hr className="my-8 border-neutral-800" />,
+    hr: () => <hr className="my-12 border-neutral-800" />,
     blockquote: ({ children }) => (
-      <blockquote className="border-l-2 border-neutral-700 pl-4 my-6 text-neutral-400 italic">
+      <blockquote className="border-l-2 border-amber-500/60 pl-4 my-6 text-neutral-400 italic">
         {children}
       </blockquote>
     ),
