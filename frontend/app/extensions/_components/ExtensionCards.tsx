@@ -19,7 +19,7 @@ const EXTENSIONS: Extension[] = [
     ord: "02",
     title: "Helper as a Service",
     blurb:
-      "The pipeline above, fronted by an HTTP API. POST a project tarball, block on the silent-with-captions preview + cost estimate, POST again to approve and render the voiced final.",
+      "The pipeline above, fronted by an HTTP API. POST a project tarball, watch the silent-with-captions preview, POST again to approve and render the voiced final.",
     api: "/helper/jobs",
     endpoint: "HTTPS · X-Helper-Key",
   },

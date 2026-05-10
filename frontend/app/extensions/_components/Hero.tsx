@@ -12,8 +12,7 @@ export function Hero() {
         <span className="italic text-amber-300">as code.</span>
       </h1>
       <p className="font-mono mt-6 max-w-md text-sm text-neutral-400">
-        Configurable. Repeatable. Cheap to re-cut. The video below was generated
-        end-to-end by a pipeline I built while building this app.
+        Configurable. Repeatable. Cheap to re-cut.
       </p>
       <div className="mt-10 flex items-center gap-4">
         <a

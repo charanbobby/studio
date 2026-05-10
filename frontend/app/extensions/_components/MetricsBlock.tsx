@@ -1,10 +1,10 @@
 type Metric = { label: string; value: string; sub?: string };
 
 const METRICS: Metric[] = [
-  { label: "Source", value: "tarball", sub: "config + scenes + captions" },
-  { label: "Output", value: "MP4", sub: "1080×1920, voiced, captioned" },
-  { label: "Cost",   value: "$0.05", sub: "per minute of voice" },
-  { label: "Re-runs",value: "free",   sub: "until voice phase" },
+  { label: "Source",  value: "tarball",      sub: "config + scenes + captions" },
+  { label: "Output",  value: "MP4",          sub: "1080×1920, voiced, captioned" },
+  { label: "Loop",    value: "silent first", sub: "human reviews before voice fires" },
+  { label: "Re-runs", value: "free",         sub: "until the voice phase" },
 ];
 
 export function MetricsBlock() {
