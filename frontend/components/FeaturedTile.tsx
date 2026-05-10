@@ -8,7 +8,7 @@ export interface FeaturedRun {
 
 export function FeaturedTile({ run }: { run: FeaturedRun }) {
   const borderClass = run.pinned
-    ? "border-blue-600 ring-1 ring-blue-600/20"
+    ? "border-amber-500 ring-1 ring-amber-500/20"
     : "border-neutral-800";
 
   return (
@@ -21,7 +21,7 @@ export function FeaturedTile({ run }: { run: FeaturedRun }) {
         className={`relative aspect-[9/16] bg-black rounded-md overflow-hidden border ${borderClass}`}
       >
         {run.pinned && (
-          <span className="absolute top-1.5 left-1.5 z-10 bg-blue-600/85 text-white text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
+          <span className="absolute top-1.5 left-1.5 z-10 bg-amber-500/90 text-neutral-950 font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
             Pinned
           </span>
         )}

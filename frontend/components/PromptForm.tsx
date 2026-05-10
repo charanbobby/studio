@@ -86,7 +86,7 @@ export function PromptForm() {
         <button
           type="submit"
           disabled={submitting || !prompt.trim()}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-700 px-5 py-2 rounded font-medium"
+          className="bg-amber-500 hover:bg-amber-400 text-neutral-950 disabled:bg-neutral-700 disabled:text-neutral-400 px-5 py-2 rounded font-medium transition"
         >
           {submitting ? "Planning..." : "Plan reel"}
         </button>
