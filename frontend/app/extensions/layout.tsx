@@ -5,7 +5,7 @@ const display = Fraunces({
   subsets: ["latin"],
   variable: "--font-display",
   axes: ["opsz", "SOFT"],
-  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 const body = IBM_Plex_Sans({
